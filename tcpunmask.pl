@@ -16,9 +16,9 @@ use Getopt::Std;
 
 my %options=();
 my $debug = 0;
-getopts("d", \%options);
+getopts("dv", \%options);
 $debug = 1 if defined $options{d};
-my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options?\n";
+my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
 my $result_line;
 
 ###############SubRoutines################
@@ -150,20 +150,6 @@ sub display {
 		$daddr = $11;
 		$options = $12 if ($12);
 	}
-	#print hex($ipver) . ",";
-	#print $headl * 4 . ",";
-	#print "$tos,";			#would like to improve this
-	#print hex($tl) . ",";
-	#print "$id,";
-	#print "$frag,";			#would like to improve this
-	#print hex($ttl) . ",";
-	#print "$prot,";			#would like to make this more granular
-	#print "$sum,";
-	#display_ip($saddr);
-	#print ",";
-	#display_ip($daddr);
-	#print ",$options" if $options;
-	#print "\n";
 	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "$tos," . hex($tl) . "," . "$id," . "$frag," . hex($ttl) . "," . "$prot," . "$sum,";
 	display_ip($saddr);
 	$result_line .= ",";
@@ -177,7 +163,6 @@ sub display_ip {
 	my $ip = shift;
 	if ($ip =~ /(..)(..)(..)(..)/) {
 		$result_line .= hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4);
-		#print hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4); 
 	}
 }
 
@@ -188,7 +173,9 @@ sub geo {
 }
 
 #my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
-my $data = "45 00 05 dc d3 65 40 00 78 06 df b1 0a b0 39 e5 0a 6b fb 04";
+#my $data = "45 00 05 dc d3 65 40 00 78 06 13 b2 0a 00 01 02 0a 00 01 03";
+my $data = "?5 00 00 34 00 1c 40 00 40 06 24 a4 ???? 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 79 64 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
+
 #my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
 my @guesses;
 my $max_value;
@@ -196,6 +183,7 @@ my $guess = 0;
 my $try;
 my $data_try;
 my $i;
+my $progress;
 
 $data = blackspace($data);			#Get rid of whitespace
 my $original_sum = getsum($data);
@@ -203,9 +191,16 @@ my $original_sum = getsum($data);
 my $nibbles_to_guess = @guesses;		#get amount of offsets
 $max_value = 2 ** ($nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
 
+print "Attempting IP Brute forcing\n";
 while ($guess < $max_value) {
+	print "\x0d";
+	$progress = ($guess / $max_value) * 100;
+	printf '%.2f', $progress;
+	#print $progress;
+	print "% done";
 	$try = asciihex($guess,$nibbles_to_guess);	
 	$data_try = createguess($data, $try);
+	print "\tTrying Packet: $data_try" if defined $options{v};
 	if (checksum($data_try) =~ /$original_sum/i) {
 		display($data_try);
 	}
@@ -214,7 +209,7 @@ while ($guess < $max_value) {
 
 geo();
 
-print @results;
+print "\n@results\n";
 
 
 #$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
