@@ -83,6 +83,13 @@ sub checksum($){
 	return $sum;
 }
 
+#Gets the checksum reported by IP header (not calculated)
+sub getsum($) {
+	my $sum = shift;
+	$sum =~ s/^.{20}(....).+$/$1/;	#Get rid of checksum bytes
+	return $sum;
+}
+
 sub checksumtcp($){
 #This is just a stub for now, describing how the checksum is done
 
@@ -94,13 +101,14 @@ sub checksumtcp($){
 }
 
 sub getsumtcp($) {
-#This is just a stub for now.
-}
-
-#Gets the checksum reported by IP header (not calculated)
-sub getsum($) {
+	#I will eventually have to do a sanity check with the IP header length (when that nibble is an unknown)
 	my $sum = shift;
-	$sum =~ s/^.{20}(....).+$/$1/;	#Get rid of checksum bytes
+	my $offset;
+	if ($sum =~ /^.(.)/) {
+		$offset = $1;
+		$offset *= 8;	#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
+	}
+	$sum =~ s/^.{$offset}.{32}(....).*/$1/;	
 	return $sum;
 }
 
@@ -220,6 +228,9 @@ while ($guess < $max_value) {
 	}
 	$guess++;
 }
+
+my $original_sum_tcp = getsumtcp($data);
+
 
 geo();
 
