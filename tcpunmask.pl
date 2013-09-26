@@ -77,10 +77,24 @@ sub checksum($){
 		$sum = $1;
 	}
 
-	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;
+	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
 	print "$sum\n" if $debug;
 	return $sum;
+}
+
+sub checksumtcp($){
+#This is just a stub for now, describing how the checksum is done
+
+#zero the current checksum
+#break TCP up into 16 bit values and add them up
+#also add IP source addr, dest addr, 0006, and TCP data length (header+data) [This is regarding sudo header]
+#Take overflow bit off and add it to total
+#1's compliment it
+}
+
+sub getsumtcp($) {
+#This is just a stub for now.
 }
 
 #Gets the checksum reported by IP header (not calculated)
@@ -174,7 +188,7 @@ sub geo {
 
 #my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
 #my $data = "45 00 05 dc d3 65 40 00 78 06 13 b2 0a 00 01 02 0a 00 01 03";
-my $data = "?5 00 00 34 00 1c 40 00 40 06 24 a4 ???? 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 79 64 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
+my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
 
 #my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
 my @guesses;
