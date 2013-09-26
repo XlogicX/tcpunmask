@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #TCP Unmask is a tool that attempts to recover sanitized data from an IP header (hopefully TCP as well). It is able to do this when people forget to also sanitize their checksums.
-#This tool is still barely "alfa", it is on git right now so I can access it everywheres I code at. It only does IP headers, and the IP header has to be hardcoded to $data var (hardly "production" quality code)
 use warnings;
 use strict;
+use Getopt::Std;
 ##Whishlist
 	#TCP!
 	#Make outputs more granular / more better
@@ -13,6 +13,13 @@ use strict;
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
+
+my %options=();
+my $debug = 0;
+getopts("d", \%options);
+$debug = 1 if defined $options{d};
+my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options?\n";
+my $result_line;
 
 ###############SubRoutines################
 
@@ -26,7 +33,16 @@ sub blackspace($) {
 #Calculate checksum given IP header info
 sub checksum($){
 	my $sum = shift;
-	$sum =~ s/(\w{20})....(.+)/$1$2/;	#Get rid of checksum bytes
+	my $length;
+	if ($sum =~ /^.(.)/) { 
+		$length = hex($1);
+		print "$length\n" if $debug;
+		$length *= 4;
+		$length = ($length * 2) - 24;
+		print "$length\n" if $debug;
+	}
+	$sum =~ s/^(\w{20})....(.{$length}).*/$1$2/;	#Get rid of checksum bytes
+	print "$sum\n" if $debug;
 
 	my $i = 0;
 	my @words;
@@ -63,7 +79,8 @@ sub checksum($){
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;
 
-	return $sum
+	print "$sum\n" if $debug;
+	return $sum;
 }
 
 #Gets the checksum reported by IP header (not calculated)
@@ -117,6 +134,7 @@ sub createguess {
 
 sub display {
 	my $data = shift;
+	$result_line = "";
 	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$prot,$sum,$saddr, $daddr, $options);
 	if ($data =~ /(.)(.)(..)(....)(....)(....)(..)(..)(....)(.{8})(.{8})(.*)/) {
 		$ipver = $1;
@@ -132,26 +150,34 @@ sub display {
 		$daddr = $11;
 		$options = $12 if ($12);
 	}
-	print hex($ipver) . ",";
-	print $headl * 4 . ",";
-	print "$tos,";			#would like to improve this
-	print hex($tl) . ",";
-	print "$id,";
-	print "$frag,";			#would like to improve this
-	print hex($ttl) . ",";
-	print "$prot,";			#would like to make this more granular
-	print "$sum,";
+	#print hex($ipver) . ",";
+	#print $headl * 4 . ",";
+	#print "$tos,";			#would like to improve this
+	#print hex($tl) . ",";
+	#print "$id,";
+	#print "$frag,";			#would like to improve this
+	#print hex($ttl) . ",";
+	#print "$prot,";			#would like to make this more granular
+	#print "$sum,";
+	#display_ip($saddr);
+	#print ",";
+	#display_ip($daddr);
+	#print ",$options" if $options;
+	#print "\n";
+	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "$tos," . hex($tl) . "," . "$id," . "$frag," . hex($ttl) . "," . "$prot," . "$sum,";
 	display_ip($saddr);
-	print ",";
+	$result_line .= ",";
 	display_ip($daddr);
-	print ",$options" if $options;
-	print "\n";
+	$result_line .= ",$options" if $options;
+	$result_line .= "\n";
+	@results = (@results, $result_line);
 }
 
 sub display_ip {
 	my $ip = shift;
 	if ($ip =~ /(..)(..)(..)(..)/) {
-		print hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4); 
+		$result_line .= hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4);
+		#print hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4); 
 	}
 }
 
@@ -163,14 +189,13 @@ sub geo {
 
 #my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
 my $data = "45 00 05 dc d3 65 40 00 78 06 df b1 0a b0 39 e5 0a 6b fb 04";
+#my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
 my @guesses;
 my $max_value;
 my $guess = 0;
 my $try;
 my $data_try;
 my $i;
-
-print "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options?\n";
 
 $data = blackspace($data);			#Get rid of whitespace
 my $original_sum = getsum($data);
@@ -188,6 +213,8 @@ while ($guess < $max_value) {
 }
 
 geo();
+
+print @results;
 
 
 #$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
