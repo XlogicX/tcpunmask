@@ -101,37 +101,24 @@ sub checksumtcp($){
 	my $daddr2;
 	my $tlength;
 	my $tcplength;
-	print "Offset: $offset\n";
 	my $offsetz = $offset - 16;	#amount of values just before IP addresses
-	print "New offset is $offsetz\n";
 	if ($sum =~ /^.{$offsetz}(.{8})(.{8}).*/) {
 		$saddr = $1;
 		$daddr = $2;
 	}
-	print "Source address is $saddr\n";
-	print "Dest address is $daddr\n";
-
 	if ($sum =~ /^.{4}(.{4}).+/) {
 		$tlength = hex($1);
 	}
-	print "Total Length is: $tlength\n";
 	$tcplength = $tlength - ($offset/2);
-	print "TCP length is: $tcplength\n";
 	$tcplength = sprintf("%.4X\n", $tcplength);
-	print "2-byte formatted TCP Length: $tcplength\n";
 	chomp($tcplength);
 
 	my $tcp_data = $sum;
 	$tcp_data =~ s/^.{$offset}(.*)/$1/;
-	print "TCP data is: $tcp_data\n";
 
 	my $tcp_without_sum = $tcp_data;
 	$tcp_without_sum =~ s/^(.{32}).{4}(.+)/$1$2/;
-	print "TCP data is: $tcp_without_sum\n";
 
-#	my $length; #the offset
-# 	$sum has data without checksum
-#
 	my $i = 0;
 	my @words;
 	#Get 2byte words for all header data (to sum)
@@ -142,8 +129,6 @@ sub checksumtcp($){
 		}
 		$i++;
 	}
-
-	print "TCP data as array: @words\n";
 
 	if ($saddr =~ /(.{4})(.{4})/) {
 		$saddr1 = $1;
@@ -156,8 +141,6 @@ sub checksumtcp($){
 
 	@words = (@words, '0006', $saddr1, $saddr2, $daddr1, $daddr2, $tcplength);
 
-	print "TCP data with IP data @words\n";
-
 	my $wordcount = @words;
 	$i = 0;
 	$sum = 0;
@@ -165,8 +148,6 @@ sub checksumtcp($){
 		$sum += hex($words[$i]);
 		$i++;
 	}
-
-	print "The sum so far is: $sum\n";
 
 	my $hexsum = sprintf("%.4X\n", $sum);
 	my $carry;
@@ -176,21 +157,16 @@ sub checksumtcp($){
 		$carry = 0;
 	}
 
-	print "sum before carry: $hexsum\n";
-
 	$sum += $carry;
 	$sum = sprintf("%.4X\n", $sum);
 	if ($sum =~ /.(.{4})/) {
 		$sum = $1;
 	}
 
-	print "Sum before 1's Compliment: $sum\n";
-
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
 	print "tcp_checksum: $sum\n" if $debug;
-	print "tcp_checksum: $sum\n";
-#	return $sum;
+	return $sum;
 }
 
 sub getsumtcp($) {
@@ -206,7 +182,6 @@ sub get_unknown($) {
 	my $header = shift;
 	my $offset = offset($header);
 	$header =~ s/^(.{$offset}).*/$1/;
-	print "header: $header\n";
 	my @nibbles = split('',$header);
 	my $nibblecount = @nibbles;
 	my $i = 0;
