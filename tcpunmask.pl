@@ -36,13 +36,13 @@ sub checksum($){
 	my $length;
 	if ($sum =~ /^.(.)/) { 
 		$length = hex($1);
-		print "$length\n" if $debug;
+		print "header length hex: $length\n" if $debug;
 		$length *= 4;
 		$length = ($length * 2) - 24;
-		print "$length\n" if $debug;
+		print "header length offset: $length\n" if $debug;
 	}
 	$sum =~ s/^(\w{20})....(.{$length}).*/$1$2/;	#Get rid of checksum bytes
-	print "$sum\n" if $debug;
+	print "data without checksum: $sum\n" if $debug;
 
 	my $i = 0;
 	my @words;
@@ -58,7 +58,7 @@ sub checksum($){
 	my $wordcount = @words;
 	$i = 0;
 	$sum = 0;
-	while ($i lt $wordcount) {
+	while ($i < $wordcount) {
 		$sum += hex($words[$i]);
 		$i++;
 	}
@@ -79,7 +79,7 @@ sub checksum($){
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
-	print "$sum\n" if $debug;
+	print "ip_checksum: $sum\n" if $debug;
 	return $sum;
 }
 
@@ -91,23 +91,112 @@ sub getsum($) {
 }
 
 sub checksumtcp($){
-#This is just a stub for now, describing how the checksum is done
+	my $sum = shift;
+	my $offset = offset($sum);
+	my $saddr;
+	my $daddr;
+	my $saddr1;
+	my $saddr2;
+	my $daddr1;
+	my $daddr2;
+	my $tlength;
+	my $tcplength;
+	print "Offset: $offset\n";
+	my $offsetz = $offset - 16;	#amount of values just before IP addresses
+	print "New offset is $offsetz\n";
+	if ($sum =~ /^.{$offsetz}(.{8})(.{8}).*/) {
+		$saddr = $1;
+		$daddr = $2;
+	}
+	print "Source address is $saddr\n";
+	print "Dest address is $daddr\n";
 
-#zero the current checksum
-#break TCP up into 16 bit values and add them up
-#also add IP source addr, dest addr, 0006, and TCP data length (header+data) [This is regarding sudo header]
-#Take overflow bit off and add it to total
-#1's compliment it
+	if ($sum =~ /^.{4}(.{4}).+/) {
+		$tlength = hex($1);
+	}
+	print "Total Length is: $tlength\n";
+	$tcplength = $tlength - ($offset/2);
+	print "TCP length is: $tcplength\n";
+	$tcplength = sprintf("%.4X\n", $tcplength);
+	print "2-byte formatted TCP Length: $tcplength\n";
+	chomp($tcplength);
+
+	my $tcp_data = $sum;
+	$tcp_data =~ s/^.{$offset}(.*)/$1/;
+	print "TCP data is: $tcp_data\n";
+
+	my $tcp_without_sum = $tcp_data;
+	$tcp_without_sum =~ s/^(.{32}).{4}(.+)/$1$2/;
+	print "TCP data is: $tcp_without_sum\n";
+
+#	my $length; #the offset
+# 	$sum has data without checksum
+#
+	my $i = 0;
+	my @words;
+	#Get 2byte words for all header data (to sum)
+	while ($tcp_without_sum) {
+		if ($tcp_without_sum =~ /^(.{4})/) {
+			$words[$i] = $1;
+		$tcp_without_sum =~ s/^.{4}//;
+		}
+		$i++;
+	}
+
+	print "TCP data as array: @words\n";
+
+	if ($saddr =~ /(.{4})(.{4})/) {
+		$saddr1 = $1;
+		$saddr2 = $2;
+	}
+	if ($daddr =~ /(.{4})(.{4})/) {
+		$daddr1 = $1;
+		$daddr2 = $2;
+	}
+
+	@words = (@words, '0006', $saddr1, $saddr2, $daddr1, $daddr2, $tcplength);
+
+	print "TCP data with IP data @words\n";
+
+	my $wordcount = @words;
+	$i = 0;
+	$sum = 0;
+	while ($i < $wordcount) {
+		$sum += hex($words[$i]);
+		$i++;
+	}
+
+	print "The sum so far is: $sum\n";
+
+	my $hexsum = sprintf("%.4X\n", $sum);
+	my $carry;
+	if ($hexsum =~ /(.).{4}/) {
+		$carry = $1;
+	} else {
+		$carry = 0;
+	}
+
+	print "sum before carry: $hexsum\n";
+
+	$sum += $carry;
+	$sum = sprintf("%.4X\n", $sum);
+	if ($sum =~ /.(.{4})/) {
+		$sum = $1;
+	}
+
+	print "Sum before 1's Compliment: $sum\n";
+
+	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
+
+	print "tcp_checksum: $sum\n" if $debug;
+	print "tcp_checksum: $sum\n";
+#	return $sum;
 }
 
 sub getsumtcp($) {
 	#I will eventually have to do a sanity check with the IP header length (when that nibble is an unknown)
 	my $sum = shift;
-	my $offset;
-	if ($sum =~ /^.(.)/) {
-		$offset = $1;
-		$offset *= 8;	#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
-	}
+	my $offset = offset($sum);
 	$sum =~ s/^.{$offset}.{32}(....).*/$1/;	
 	return $sum;
 }
@@ -115,6 +204,9 @@ sub getsumtcp($) {
 #Get comma seperated list of offsets where ?'s are found
 sub get_unknown($) {
 	my $header = shift;
+	my $offset = offset($header);
+	$header =~ s/^(.{$offset}).*/$1/;
+	print "header: $header\n";
 	my @nibbles = split('',$header);
 	my $nibblecount = @nibbles;
 	my $i = 0;
@@ -125,6 +217,42 @@ sub get_unknown($) {
 	}
 	$questions =~ s/^,//;
 	return $questions;
+}
+
+sub get_unknown_tcp($) {
+	my $header = shift;
+	my $offset = offset($header);
+	$header =~ s/^.{$offset}(.*)/$1/;
+	#print "TCP header: $header\n";
+	my @nibbles = split('',$header);
+	my $nibblecount = @nibbles;
+	my $i = 0;
+	my $questions = "";
+	while ($i < $nibblecount) {
+		$questions .= ',' . $i if ($nibbles[$i] eq '?');
+		$i++;
+	}
+	$questions =~ s/^,//;
+	return $questions;
+}
+
+sub get_ipdata{
+	my $ip_data = shift;
+	my $offset = offset($ip_data);
+	if ($ip_data =~ /^(.{$offset}).*/) {
+		$ip_data = $1;
+	}
+	return $ip_data;
+}
+
+sub offset {
+	my $sum = shift;
+	my $offset;
+	if ($sum =~ /^.(.)/) {
+		$offset = $1;
+		$offset *= 8;	#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
+	}
+	return $offset;
 }
 
 sub asciihex {
@@ -197,7 +325,7 @@ sub geo {
 #my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
 #my $data = "45 00 05 dc d3 65 40 00 78 06 13 b2 0a 00 01 02 0a 00 01 03";
 my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
-
+#tcp bd
 #my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
 my @guesses;
 my $max_value;
@@ -208,8 +336,11 @@ my $i;
 my $progress;
 
 $data = blackspace($data);			#Get rid of whitespace
-my $original_sum = getsum($data);
-@guesses = split(',',get_unknown($data));	#get offset of unknown nibbles
+
+my $ip_data = get_ipdata($data);
+
+my $original_sum = getsum($ip_data);
+@guesses = split(',',get_unknown($ip_data));	#get offset of unknown nibbles
 my $nibbles_to_guess = @guesses;		#get amount of offsets
 $max_value = 2 ** ($nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
 
@@ -220,8 +351,8 @@ while ($guess < $max_value) {
 	printf '%.2f', $progress;
 	#print $progress;
 	print "% done";
-	$try = asciihex($guess,$nibbles_to_guess);	
-	$data_try = createguess($data, $try);
+	$try = asciihex($guess,$nibbles_to_guess);
+	$data_try = createguess($ip_data, $try);	
 	print "\tTrying Packet: $data_try" if defined $options{v};
 	if (checksum($data_try) =~ /$original_sum/i) {
 		display($data_try);
@@ -230,7 +361,15 @@ while ($guess < $max_value) {
 }
 
 my $original_sum_tcp = getsumtcp($data);
+print "Original TCP sum: $original_sum_tcp\n" if defined $debug;
+my @tcp_guesses = split(',',get_unknown_tcp($data));
+print "tcp_guesses: @tcp_guesses\n";
+my $tcp_nibbles_to_guess = @tcp_guesses;		#get amount of offsets
+print "nibbles to guess: $tcp_nibbles_to_guess\n";
+my $tcp_max_value = 2 ** ($tcp_nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
+print "tcp max value is: $tcp_max_value\n";
 
+checksumtcp($data);
 
 geo();
 
