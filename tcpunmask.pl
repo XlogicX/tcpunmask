@@ -20,6 +20,7 @@ getopts("dv", \%options);
 $debug = 1 if defined $options{d};
 my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
 my $result_line;
+my $data = shift @ARGV;
 
 ###############SubRoutines################
 
@@ -308,7 +309,7 @@ sub geo {
 
 #my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
 #my $data = "45 00 05 dc d3 65 40 00 78 06 13 b2 0a 00 01 02 0a 00 01 03";
-my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
+#my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
 #tcp bd
 #my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
 my @guesses;
@@ -325,6 +326,8 @@ my $ip_data = get_ipdata($data);
 my $tcp_data = get_tcpdata($data);
 
 my $original_sum = getsum($ip_data);
+my $original_sum_tcp = getsumtcp($data);
+print "Original TCP sum: $original_sum_tcp\n" if $debug;
 @guesses = split(',',get_unknown($ip_data));	#get offset of unknown nibbles
 my $nibbles_to_guess = @guesses;		#get amount of offsets
 $max_value = 2 ** ($nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
@@ -338,44 +341,47 @@ while ($guess < $max_value) {
 	print "% done";
 	$try = asciihex($guess,$nibbles_to_guess);
 	$data_try = createguess($ip_data, $try);	
-	print "\tTrying Packet: $data_try" if defined $options{v};
+	my $status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " " . checksumtcp($data_try . $tcp_data) . " for " . $original_sum . "/" . $original_sum_tcp if defined $options{v};
+	$status =~ s/\n// if defined $options{v};
+	print $status if defined $options{v};
 	if (checksum($data_try) =~ /$original_sum/i) {
-		display($data_try);
+		if (checksumtcp($data_try . $tcp_data) =~ /$original_sum_tcp/i) {
+			display($data_try);
+		}
 	}
 	$guess++;
 }
 
-my $original_sum_tcp = getsumtcp($data);
-print "Original TCP sum: $original_sum_tcp\n" if defined $debug;
-my @tcp_guesses = split(',',get_unknown_tcp($data));
-print "tcp_guesses: @tcp_guesses\n";
-my $tcp_nibbles_to_guess = @tcp_guesses;		#get amount of offsets
-print "nibbles to guess: $tcp_nibbles_to_guess\n";
-my $tcp_max_value = 2 ** ($tcp_nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
-print "tcp max value is: $tcp_max_value\n";
+
+#my @tcp_guesses = split(',',get_unknown_tcp($data));
+#print "tcp_guesses: @tcp_guesses\n";
+#my $tcp_nibbles_to_guess = @tcp_guesses;		#get amount of offsets
+#print "nibbles to guess: $tcp_nibbles_to_guess\n";
+#my $tcp_max_value = 2 ** ($tcp_nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
+#print "tcp max value is: $tcp_max_value\n";
 
 
-print "Attempting TCP Brute forcing\n";
-$guess = 0;
-while ($guess < $tcp_max_value) {
-	print "\x0d";
-	$progress = ($guess / $tcp_max_value) * 100;
-	printf '%.2f', $progress;
+#print "Attempting TCP Brute forcing\n";
+#$guess = 0;
+#while ($guess < $tcp_max_value) {
+#	print "\x0d";
+#	$progress = ($guess / $tcp_max_value) * 100;
+#	printf '%.2f', $progress;
 	#print $progress;
-	print "% done";
-	$try = asciihex($guess,$tcp_nibbles_to_guess);
-	$data_try = createguess($tcp_data, $try);	
-	print "\tTrying Packet: $data_try" if defined $options{v};
+#	print "% done";
+#	$try = asciihex($guess,$tcp_nibbles_to_guess);
+#	$data_try = createguess($tcp_data, $try);	
+#	print "\tTrying Packet: $data_try" if defined $options{v};
 
 	#This form wont work, this will need to be nested in IP bruting, as we need IP address guesses as well :(
 #	if (checksumtcp($data_try) =~ /$original_sum_tcp/i) {
 #		displaytcp($data_try);										#need a display tcp
 #	}
-	$guess++;
-}
+#	$guess++;
+#}
 
 
-checksumtcp($data);
+#checksumtcp($data);
 
 geo();
 
