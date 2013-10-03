@@ -6,132 +6,137 @@ use Getopt::Std;
 ##Whishlist
 	#TCP!
 	#Make outputs more granular / more better
-	#add progress indicator
 	#Add GeoIP datas
 	#Cross reference bogons
 	#Add --options to reduce invalid fields
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
+	#Add help listing
+	#Add timers, to evaluate performance
 
-my %options=();
-my $debug = 0;
+my %options=();		#For cli options
 getopts("dv", \%options);
+my $debug = 0;		#A flag for the -d option
 $debug = 1 if defined $options{d};
+#Define "CSV" header in @results array, this array will also hold the results from brute forcing
 my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
-my $result_line;
-my $data = shift @ARGV;
+my $result_line;		#This is a container of just a single line for @results array
+my $data = shift @ARGV;	#Get the input TCP/IP header (starting at IP header data)
 
 ###############SubRoutines################
 
 #Get rid of newlines and whitespace
 sub blackspace($) {
-   	my $header = shift;
-	$header =~ s/\s|\n//g;
-	return $header;
+   	my $header = shift;		#Get data passed to our sub
+	$header =~ s/\s|\n//g;	#find all whitespace and newlines and replace it with nothing
+	return $header;			#Return our results
 }
 
 #Calculate checksum given IP header info
 sub checksum($){
-	my $sum = shift;
-	my $length;
-	if ($sum =~ /^.(.)/) { 
-		$length = hex($1);
-		print "header length hex: $length\n" if $debug;
-		$length *= 4;
-		$length = ($length * 2) - 24;
-		print "header length offset: $length\n" if $debug;
+	my $sum = shift;										#Get our header info passed to this sub
+	my $length;												#Create container for IP length
+	if ($sum =~ /^.(.)/) { 									#Parse out the 2nd nibble (IP length)
+		$length = hex($1);									#Hex->Decimal conversion of it
+		print "header length hex: $length\n" if $debug;			#(debug): give me the header length
+		$length *= 4;										#Multiply by 4 (it's an IP thing)
+		$length = ($length * 2) - 24;						#length no longer length, but offset for how much data AFTER checksum
+		print "header length offset: $length\n" if $debug;		#(debug): in the case we want to know that offset
 	}
-	$sum =~ s/^(\w{20})....(.{$length}).*/$1$2/;	#Get rid of checksum bytes
-	print "data without checksum: $sum\n" if $debug;
+	$sum =~ s/^(\w{20})....(.{$length}).*/$1$2/;			#Get rid of checksum bytes
+	print "data without checksum: $sum\n" if $debug;			#(debug): see what header looks like without checksum
 
-	my $i = 0;
-	my @words;
 	#Get 2byte words for all header data (to sum)
-	while ($sum) {
-		if ($sum =~ /^(.{4})/) {
-			$words[$i] = $1;
-		$sum =~ s/^.{4}//;
+	my $i = 0;						#init the loop cntr
+	my @words;						#array for 2-byte words for adding
+	while ($sum) {					#while there is still data in our remaining header data
+		if ($sum =~ /^(.{4})/) {	#parse out the first 4 characters (nibbles) (2-bytes)
+			$words[$i] = $1;		#add it to our array
+		$sum =~ s/^.{4}//;			#remove it from $sum
 		}
-		$i++;
+		$i++;						#inc the cntr for next 2-bytes (until done)
 	}
 
-	my $wordcount = @words;
-	$i = 0;
-	$sum = 0;
-	while ($i < $wordcount) {
-		$sum += hex($words[$i]);
-		$i++;
+	#Add all the 2-byte values up
+	my $wordcount = @words;			#how many values are we adding? (unknown due to IP options)
+	$i = 0;							#init the loop cntr
+	$sum = 0;						#init our total
+	while ($i < $wordcount) {		#keep adding until we've added all of the words
+		$sum += hex($words[$i]);	#add a decimal form of our ASCII-Hex 2-bytes
+		$i++;						#inc the cntr for next 2-bytes to add
 	}
 
-	my $hexsum = sprintf("%.4X\n", $sum);
-	my $carry;
-	if ($hexsum =~ /(.).{4}/) {
-		$carry = $1;
-	} else {
-		$carry = 0;
+	#Determine what value overflowed into carry (past 2 bytes)
+	my $hexsum = sprintf("%.4X\n", $sum);	#Just get the Least Significant nibbles
+	my $carry;								#create container for value of carry
+	if ($hexsum =~ /(.).{4}/) {				#if there are 5 nibbles, parse the Most Significant nibble
+		$carry = $1;						#store it as the carry
+	} else {								#otherwise
+		$carry = 0;								#it's zero
 	}
 
-	$sum += $carry;
-	$sum = sprintf("%.4X\n", $sum);
-	if ($sum =~ /.(.{4})/) {
+	#Now add the carry to the non-overflowed sum
+	$sum += $carry;						#add the carry to the non-overflowed sum		
+	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
+	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
 		$sum = $1;
 	}
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
-	print "ip_checksum: $sum\n" if $debug;
-	return $sum;
+	print "ip_checksum: $sum\n" if $debug;	#(debug): Reports the resulting checksum
+	return $sum;							#Return the resulting checksum
 }
 
 #Gets the checksum reported by IP header (not calculated)
 sub getsum($) {
-	my $sum = shift;
-	$sum =~ s/^.{20}(....).+$/$1/;	#Get rid of checksum bytes
-	return $sum;
+	my $sum = shift;				#Get header info passed to this sub
+	$sum =~ s/^.{20}(....).+$/$1/;	#Parse checksum bytes
+	return $sum;					#Return the checksum reported by original IP header
 }
 
+#Calculate checksum given TCP header info
 sub checksumtcp($){
-	my $sum = shift;
-	my $offset = offset($sum);
-	my $saddr;
-	my $daddr;
-	my $saddr1;
-	my $saddr2;
-	my $daddr1;
-	my $daddr2;
-	my $tlength;
-	my $tcplength;
-	my $offsetz = $offset - 16;	#amount of values just before IP addresses
-	if ($sum =~ /^.{$offsetz}(.{8})(.{8}).*/) {
+	my $sum = shift;								#grab packet data passed to this sub
+	my $offset = offset($sum);						#Get's size of IP header (assuming ASCII hex format)
+	my $saddr;										#Container for source address
+	my $daddr;										#Container for destination address
+	my $saddr1;										#Container for first half of source address
+	my $saddr2;										#Container for last half of source address
+	my $daddr1;										#Container for first half of destination address
+	my $daddr2;										#Container for last half of destination address
+	my $tlength;									#Container for length of packet (as reported by IP header)
+	my $tcplength;									#Container for length of just tcp data (header & data)
+	my $offsetz = $offset - 16;						#amount of values just before IP addresses
+
+	#Populate some vars
+	if ($sum =~ /^.{$offsetz}(.{8})(.{8}).*/) {		#Populate Source and Destination IP's
 		$saddr = $1;
 		$daddr = $2;
 	}
-	if ($sum =~ /^.{4}(.{4}).+/) {
-		$tlength = hex($1);
+	if ($sum =~ /^.{4}(.{4}).+/) {					#Parse packet length (as reported by IP header)
+		$tlength = hex($1);							#Get the decimal value into $tlength
 	}
-	$tcplength = $tlength - ($offset/2);
-	$tcplength = sprintf("%.4X\n", $tcplength);
-	chomp($tcplength);
+	$tcplength = $tlength - ($offset/2);			#TCP header + data = total packet length
+	$tcplength = sprintf("%.4X\n", $tcplength);		#Get ASCII-hex representation of this
+	chomp($tcplength);								#chomp chomp chomp for safe measure
+	my $tcp_data = $sum;							#Get full headers info into $tcp_data (it's both IP and TCP for now though...)
+	$tcp_data =~ s/^.{$offset}(.*)/$1/;				#Parse out the IP data leaving just TCP
+	my $tcp_without_sum = $tcp_data;				#Store TCP data in $tcp_without_sum var to process next
+	$tcp_without_sum =~ s/^(.{32}).{4}(.+)/$1$2/;	#Parse out the checksum
 
-	my $tcp_data = $sum;
-	$tcp_data =~ s/^.{$offset}(.*)/$1/;
-
-	my $tcp_without_sum = $tcp_data;
-	$tcp_without_sum =~ s/^(.{32}).{4}(.+)/$1$2/;
-
-	my $i = 0;
-	my @words;
 	#Get 2byte words for all header data (to sum)
-	while ($tcp_without_sum) {
-		if ($tcp_without_sum =~ /^(.{4})/) {
-			$words[$i] = $1;
-		$tcp_without_sum =~ s/^.{4}//;
+	my $i = 0;									#init the loop cntr
+	my @words;									#Container of array of 2-byte words to sum
+	while ($tcp_without_sum) {					#while we still have 2-byte words
+		if ($tcp_without_sum =~ /^(.{4})/) {	#Get the first 2 bytes
+			$words[$i] = $1;					#store them in the words array			
+		$tcp_without_sum =~ s/^.{4}//;			#remove those 2 bytes from $tcp_without_sum
 		}
-		$i++;
+		$i++;									#On to the next 2 bytes
 	}
-
-	if ($saddr =~ /(.{4})(.{4})/) {
+	if ($saddr =~ /(.{4})(.{4})/) {				#Use some regex to split IP's into 2-byte halves
 		$saddr1 = $1;
 		$saddr2 = $2;
 	}
@@ -139,139 +144,155 @@ sub checksumtcp($){
 		$daddr1 = $1;
 		$daddr2 = $2;
 	}
+	@words = (@words, '0006', $saddr1, $saddr2, $daddr1, $daddr2, $tcplength);	#array of all 2-byte words to add
 
-	@words = (@words, '0006', $saddr1, $saddr2, $daddr1, $daddr2, $tcplength);
-
-	my $wordcount = @words;
-	$i = 0;
-	$sum = 0;
-	while ($i < $wordcount) {
-		$sum += hex($words[$i]);
-		$i++;
+	#Add the words
+	my $wordcount = @words;			#how many words
+	$i = 0;							#init the loop cntr
+	$sum = 0;						#init our sum
+	while ($i < $wordcount) {		#while we still have words to add
+		$sum += hex($words[$i]);	#add current word to $sum
+		$i++;						#On to next word
 	}
 
-	my $hexsum = sprintf("%.4X\n", $sum);
-	my $carry;
-	if ($hexsum =~ /(.).{4}/) {
-		$carry = $1;
-	} else {
-		$carry = 0;
+	#Determine what value overflowed into carry (past 2 bytes)
+	my $hexsum = sprintf("%.4X\n", $sum);	#Just get the Least Significant nibbles
+	my $carry;								#create container for value of carry
+	if ($hexsum =~ /(.).{4}/) {				#if there are 5 nibbles, parse the Most Significant nibble
+		$carry = $1;						#store it as the carry
+	} else {								#otherwise
+		$carry = 0;							#it's zero
 	}
 
-	$sum += $carry;
-	$sum = sprintf("%.4X\n", $sum);
-	if ($sum =~ /.(.{4})/) {
+	#Now add the carry to the non-overflowed sum
+	$sum += $carry;						#add the carry to the non-overflowed sum
+	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
+	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
 		$sum = $1;
 	}
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
-	print "tcp_checksum: $sum\n" if $debug;
-	return $sum;
+	print "tcp_checksum: $sum\n" if $debug;			#(debug): Reports the resulting checksum
+	return $sum;	#Return the checksum
 }
 
+#Gets the checksum reported by TCP header (not calculated)
 sub getsumtcp($) {
 	#I will eventually have to do a sanity check with the IP header length (when that nibble is an unknown)
-	my $sum = shift;
-	my $offset = offset($sum);
-	$sum =~ s/^.{$offset}.{32}(....).*/$1/;	
-	return $sum;
+	my $sum = shift;							#get header data passed to this sub
+	my $offset = offset($sum);					#get IP header offset (not static, due to IP options)
+	$sum =~ s/^.{$offset}.{32}(....).*/$1/;		#Parse checksum bytes
+	return $sum;								#Return the checksum reported by original IP header
 }
 
 #Get comma seperated list of offsets where ?'s are found
 sub get_unknown($) {
-	my $header = shift;
-	my $offset = offset($header);
-	$header =~ s/^(.{$offset}).*/$1/;
-	my @nibbles = split('',$header);
-	my $nibblecount = @nibbles;
-	my $i = 0;
-	my $questions = "";
-	while ($i < $nibblecount) {
-		$questions .= ',' . $i if ($nibbles[$i] eq '?');
-		$i++;
+	#This function could be overkill for what I'm doing. I initially wanted to know the position of each ?,
+	#I don't think I currently need that info, but I still use this function for some of the artifacts that
+	#it produces
+	my $header = shift;					#Get header data passed to this sub
+	my $offset = offset($header);		#Get the length of IP heaader
+	$header =~ s/^(.{$offset}).*/$1/;	#Get just the IP header parsed out
+	my @nibbles = split('',$header);	#Store each char in an array called @nibbles
+	my $nibblecount = @nibbles;			#Count how many chars (jeeze, could be derived from offset...)
+
+	#Get a Scalar "CSV" string of the location of each '?' char
+	my $i = 0;												#init the loop cntr
+	my $questions = "";										#init $questions var
+	while ($i < $nibblecount) {								#For all of our nibbles
+		$questions .= ',' . $i if ($nibbles[$i] eq '?');	#add array offset to your scaler csv offset list
+		$i++;												#On to the next
 	}
-	$questions =~ s/^,//;
-	return $questions;
+	$questions =~ s/^,//;									#Remove the first comma
+	return $questions;										#Return our scalar csv line of where each ? is
 }
 
+#Get comma seperated list of offsets where ?'s are found
 sub get_unknown_tcp($) {
-	my $header = shift;
-	my $offset = offset($header);
-	$header =~ s/^.{$offset}(.*)/$1/;
-	#print "TCP header: $header\n";
-	my @nibbles = split('',$header);
-	my $nibblecount = @nibbles;
-	my $i = 0;
-	my $questions = "";
-	while ($i < $nibblecount) {
-		$questions .= ',' . $i if ($nibbles[$i] eq '?');
-		$i++;
+	#See get_unknown() about how I feel about the relevance of this sub
+	my $header = shift;					#Get header data passed to this sub
+	my $offset = offset($header);		#Get the length of IP header
+	$header =~ s/^.{$offset}(.*)/$1/;	#Parse out just the TCP side of this
+	my @nibbles = split('',$header);	#Store each char in an array called @nibbles
+	my $nibblecount = @nibbles;			#Count how many chars
+
+	#Get a Scalar "CSV" string of the lcation of each '?' char
+	my $i = 0;												#init the loop cntr
+	my $questions = "";										#init $questions var
+	while ($i < $nibblecount) {								#For all of our nibbles
+		$questions .= ',' . $i if ($nibbles[$i] eq '?');	#add array offset to your scaler csv offset list
+		$i++;												#On to the next
 	}
-	$questions =~ s/^,//;
-	return $questions;
+	$questions =~ s/^,//;									#Remove the first comma
+	return $questions;										#Return our scalar csv line of where each ? is
 }
 
+#Just parse out the IP header and return it
 sub get_ipdata{
-	my $ip_data = shift;
-	my $offset = offset($ip_data);
-	if ($ip_data =~ /^(.{$offset}).*/) {
-		$ip_data = $1;
+	my $ip_data = shift;					#Get full header data passed to this sub
+	my $offset = offset($ip_data);			#get the offset
+	if ($ip_data =~ /^(.{$offset}).*/) {	#Parse the IP part of packet
+		$ip_data = $1;						#store it
 	}
-	return $ip_data;
+	return $ip_data;						#return it
 }
 
+#Just parse out the TCP header and return it
 sub get_tcpdata{
-	my $tcp_data = shift;
-	my $offset = offset($tcp_data);
-	if ($tcp_data =~ /^.{$offset}(.*)$/) {
-		$tcp_data = $1;
+	my $tcp_data = shift;					#Get full header data passed to this sub
+	my $offset = offset($tcp_data);			#get the offset
+	if ($tcp_data =~ /^.{$offset}(.*)$/) {	#Parse the TCP part of packet
+		$tcp_data = $1;						#store it
 	}
-	return $tcp_data;
+	return $tcp_data;						#return it
 }
 
 sub offset {
-	my $sum = shift;
-	my $offset;
-	if ($sum =~ /^.(.)/) {
-		$offset = $1;
-		$offset *= 8;	#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
+	my $sum = shift;			#Get header data passed to sub
+	my $offset;					#Container for the offset
+	if ($sum =~ /^.(.)/) {		#Parse out the second nibble
+		$offset = $1;			#store it
+		$offset *= 8;			#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
 	}
-	return $offset;
+	return $offset;				#Return the formatted offset
 }
 
+#ASCII HEX encodes the brute-forcing part of our packet
 sub asciihex {
-	my $hexstring = $_[0];
-	my $nibbles = $_[1];
-	$hexstring = sprintf("%.${nibbles}X\n", $hexstring);
-	return $hexstring;
+	my $hexstring = $_[0];									#This is the bruteforce iteration
+	my $nibbles = $_[1];									#This is how many characters total to brute
+	$hexstring = sprintf("%.${nibbles}X\n", $hexstring);	#This ASCIIfies the brute force value
+	return $hexstring;										#This returns it
+	#For example, say we were on $try 50 ($hexstring), and were guessing through 4 characters ($nibbles)
+	#	$hexstring = 50
+	#	$nibbles = 4
+	#	$hextring would = 0032 (This is hex for 50)
 }
 
 sub createguess {
 	#Get params
-	my $data = $_[0];
-	my $try = $_[1];
+	my $data = $_[0];	#Our IP header with ?'s
+	my $try = $_[1];	#Our brute-force replacement for the ?'s
 
 	my @trys = split('',$try);	#make each guess nibble seperate
-	my $nibbles = @trys;
+	my $nibbles = @trys;		#make note of now many nibbles there are
 
-	my $i = 0;
-	while ($i < $nibbles) {
-		$data =~ s/\?/$trys[$i]/;
-		$i++;
+	#Craft packet replacing ?'s with our current brute force value
+	my $i = 0;						#init the loop cntr
+	while ($i < $nibbles) {			#while we still have nibbles to replace
+		$data =~ s/\?/$trys[$i]/;	#Replace the first available ? with current nibble in our brute array
+		$i++;						#Inc the brute nibble, on to the next ?
 	}
 
-	#print "\n$data\n";
-	#print "$try\n";
-
-	return $data;
+	return $data;	#Return our packet with no ?'s
 }
 
 sub display {
-	my $data = shift;
-	$result_line = "";
-	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$prot,$sum,$saddr, $daddr, $options);
-	if ($data =~ /(.)(.)(..)(....)(....)(....)(..)(..)(....)(.{8})(.{8})(.*)/) {
+	my $data = shift;				#Get header info, this is specifically IP header data
+	$result_line = "";				#init the "CSV" result line for this packet
+	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$prot,$sum,$saddr, $daddr, $options);	#Declare containers
+	if ($data =~ /(.)(.)(..)(....)(....)(....)(..)(..)(....)(.{8})(.{8})(.*)/) {	#Parse all the fields
 		$ipver = $1;
 		$headl = $2;
 		$tos = $3;
@@ -283,109 +304,80 @@ sub display {
 		$sum = $9;
 		$saddr = $10;
 		$daddr = $11;
-		$options = $12 if ($12);
+		$options = $12 if ($12);	#If there are options, print them raw
 	}
+	#Add Ipversion, header length, TOS, IP-ID, Fragment, Protocol Type, and Checksum to $result_line
 	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "$tos," . hex($tl) . "," . "$id," . "$frag," . hex($ttl) . "," . "$prot," . "$sum,";
-	display_ip($saddr);
-	$result_line .= ",";
-	display_ip($daddr);
-	$result_line .= ",$options" if $options;
-	$result_line .= "\n";
-	@results = (@results, $result_line);
+	display_ip($saddr);							#Add Source address to result line
+	$result_line .= ",";						#Add the comma seperator
+	display_ip($daddr);							#Add Destination address to result line
+	$result_line .= ",$options" if $options;	#If there are options, add a comma and the options
+	$result_line .= "\n";						#Regardless, newline it to prepare for next row of csv
+	@results = (@results, $result_line);		#Add this line to our total @results CSV format
 }
 
 sub display_ip {
-	my $ip = shift;
-	if ($ip =~ /(..)(..)(..)(..)/) {
+	my $ip = shift;							#Take the IP
+	if ($ip =~ /(..)(..)(..)(..)/) {		#Get its octets
+		#Format it in a decimal dot notation and add it to our $result_line CSV format
 		$result_line .= hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4);
 	}
 }
 
 sub geo {
+	#This is a stub for now
 	open IN, 'GeoLiteCity-Blocks.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is IN
 
 	close IN;
 }
 
-#my $data = "4500 003c 1c46 4000 4006 b1e6 ac10 0a63 ac10 0a0c";
-#my $data = "45 00 05 dc d3 65 40 00 78 06 13 b2 0a 00 01 02 0a 00 01 03";
+#Example data that I work and test with...
 #my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
-#tcp bd
-#my $data = "46 00 05 dc d3 65 40 00 78 06 b4 23 0a b0 39 e5 ?? 6b fb 04 01 02 03 04";
-my @guesses;
-my $max_value;
-my $guess = 0;
-my $try;
-my $data_try;
-my $i;
-my $progress;
 
+my @guesses;		#Container for the offset locations of where ?'s are
+my $max_value;		#Container that stores the amount of brute force attempts needed (used for looping)
+my $guess = 0;		#Container for the current guess we are on, it obviously starts at 0
+my $try;			#The brute force data being tried (only stores the guess/unknwon data, not the entire packet)
+my $data_try;		#This is the actual data of the entire packet along with the guess data integrated in
+my $i;				#A throwaway loop counter
+my $progress;		#This is used to show user percent of progress of brute forcing
+
+#Set up the data to be ready for brute forcing
 $data = blackspace($data);			#Get rid of whitespace
-
-my $ip_data = get_ipdata($data);
-my $tcp_data = get_tcpdata($data);
-
-my $original_sum = getsum($ip_data);
-my $original_sum_tcp = getsumtcp($data);
-print "Original TCP sum: $original_sum_tcp\n" if $debug;
+my $ip_data = get_ipdata($data);	#Isolate out IP data
+my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
+my $original_sum = getsum($ip_data);		#Get the reported IP checksum in IP header
+my $original_sum_tcp = getsumtcp($data);	#Get the reported TCP checksum in TCP header
+print "Original IP sum: $original_sum\n" if $debug;			#(debug): Report what the IP Checksum is supposed to be
+print "Original TCP sum: $original_sum_tcp\n" if $debug;	#(debug): Report what the TCP Checksum is supposed to be
 @guesses = split(',',get_unknown($ip_data));	#get offset of unknown nibbles
-my $nibbles_to_guess = @guesses;		#get amount of offsets
+my $nibbles_to_guess = @guesses;				#get amount of offsets (all we really needed...)
 $max_value = 2 ** ($nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
 
-print "Attempting IP Brute forcing\n";
-while ($guess < $max_value) {
-	print "\x0d";
-	$progress = ($guess / $max_value) * 100;
-	printf '%.2f', $progress;
-	#print $progress;
-	print "% done";
-	$try = asciihex($guess,$nibbles_to_guess);
-	$data_try = createguess($ip_data, $try);	
+#This is the guts of the actual brute forcing
+print "Attempting IP Brute forcing\n";			#Let user know that you are bruteforcing the IP headers
+while ($guess < $max_value) {					#While we still have values to guess
+	print "\x0d";								#Return to beginning of line
+	$progress = ($guess / $max_value) * 100;	#Print percent complete
+	printf '%.2f', $progress;					#with 2 decimal points
+	print "% done";								#and percentage symbol at the end
+	$try = asciihex($guess,$nibbles_to_guess);	#Create the data guess (just the guess, not whole packet)
+	$data_try = createguess($ip_data, $try);	#Combine guess with packet
+	#If Verbose is specified, print some stats out, like the packet and checksums of the current try
 	my $status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " " . checksumtcp($data_try . $tcp_data) . " for " . $original_sum . "/" . $original_sum_tcp if defined $options{v};
-	$status =~ s/\n// if defined $options{v};
-	print $status if defined $options{v};
-	if (checksum($data_try) =~ /$original_sum/i) {
-		if (checksumtcp($data_try . $tcp_data) =~ /$original_sum_tcp/i) {
-			display($data_try);
+	$status =~ s/\n// if defined $options{v};									#"Chomp" it (if -v still)
+	print $status if defined $options{v};										#print the status (-v)
+	if (checksum($data_try) =~ /$original_sum/i) {								#If the IP bruteforce attempt checksum result matches the expected one
+		if (checksumtcp($data_try . $tcp_data) =~ /$original_sum_tcp/i) {		#Check that the same is true for TCP as well
+			display($data_try);													#If so, add it to our list of valid results
 		}
 	}
-	$guess++;
+	$guess++;																	#Next Guess
 }
-
-
-#my @tcp_guesses = split(',',get_unknown_tcp($data));
-#print "tcp_guesses: @tcp_guesses\n";
-#my $tcp_nibbles_to_guess = @tcp_guesses;		#get amount of offsets
-#print "nibbles to guess: $tcp_nibbles_to_guess\n";
-#my $tcp_max_value = 2 ** ($tcp_nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
-#print "tcp max value is: $tcp_max_value\n";
-
-
-#print "Attempting TCP Brute forcing\n";
-#$guess = 0;
-#while ($guess < $tcp_max_value) {
-#	print "\x0d";
-#	$progress = ($guess / $tcp_max_value) * 100;
-#	printf '%.2f', $progress;
-	#print $progress;
-#	print "% done";
-#	$try = asciihex($guess,$tcp_nibbles_to_guess);
-#	$data_try = createguess($tcp_data, $try);	
-#	print "\tTrying Packet: $data_try" if defined $options{v};
-
-	#This form wont work, this will need to be nested in IP bruting, as we need IP address guesses as well :(
-#	if (checksumtcp($data_try) =~ /$original_sum_tcp/i) {
-#		displaytcp($data_try);										#need a display tcp
-#	}
-#	$guess++;
-#}
-
-
-#checksumtcp($data);
 
 geo();
 
 print "\n@results\n";
 
-
+#I might need this some day...
 #$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
