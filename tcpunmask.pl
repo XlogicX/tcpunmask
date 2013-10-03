@@ -3,6 +3,7 @@
 use warnings;
 use strict;
 use Getopt::Std;
+use Time::HiRes;
 ##Whishlist
 	#TCP!
 	#Make outputs more granular / more better
@@ -15,26 +16,32 @@ use Getopt::Std;
 	#Add help listing
 	#Add timers, to evaluate performance
 
-my %options=();		#For cli options
-getopts("dv", \%options);
-my $debug = 0;		#A flag for the -d option
+my $start = Time::HiRes::time();	#Stores when the script started
+my %options=();						#For cli options
+getopts("dvt", \%options);			#Get the options passed
+my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
 #Define "CSV" header in @results array, this array will also hold the results from brute forcing
 my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
 my $result_line;		#This is a container of just a single line for @results array
 my $data = shift @ARGV;	#Get the input TCP/IP header (starting at IP header data)
+my @performance;	#Array to hold time values of how long each sub-routine takes
 
 ###############SubRoutines################
 
 #Get rid of newlines and whitespace
 sub blackspace($) {
-   	my $header = shift;		#Get data passed to our sub
-	$header =~ s/\s|\n//g;	#find all whitespace and newlines and replace it with nothing
-	return $header;			#Return our results
+	my $begin = Time::HiRes::time();	#Get start time of sub
+   	my $header = shift;					#Get data passed to our sub
+	$header =~ s/\s|\n//g;				#find all whitespace and newlines and replace it with nothing
+	my $end = Time::HiRes::time();		#Get finish time
+	$performance[0] += ($end-$begin);	#Add to total time for this sub
+	return $header;						#Return our results
 }
 
 #Calculate checksum given IP header info
 sub checksum($){
+	my $begin = Time::HiRes::time();						#Get start time of sub
 	my $sum = shift;										#Get our header info passed to this sub
 	my $length;												#Create container for IP length
 	if ($sum =~ /^.(.)/) { 									#Parse out the 2nd nibble (IP length)
@@ -86,18 +93,26 @@ sub checksum($){
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
 	print "ip_checksum: $sum\n" if $debug;	#(debug): Reports the resulting checksum
+
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[1] += ($end-$begin);		#Add to total time for this sub
+
 	return $sum;							#Return the resulting checksum
 }
 
 #Gets the checksum reported by IP header (not calculated)
 sub getsum($) {
-	my $sum = shift;				#Get header info passed to this sub
-	$sum =~ s/^.{20}(....).+$/$1/;	#Parse checksum bytes
-	return $sum;					#Return the checksum reported by original IP header
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	my $sum = shift;					#Get header info passed to this sub
+	$sum =~ s/^.{20}(....).+$/$1/;		#Parse checksum bytes
+	my $end = Time::HiRes::time();		#Get finish time
+	$performance[2] += ($end-$begin);	#Add to total time for this sub
+	return $sum;						#Return the checksum reported by original IP header
 }
 
 #Calculate checksum given TCP header info
 sub checksumtcp($){
+	my $begin = Time::HiRes::time();				#Get start time of sub
 	my $sum = shift;								#grab packet data passed to this sub
 	my $offset = offset($sum);						#Get's size of IP header (assuming ASCII hex format)
 	my $saddr;										#Container for source address
@@ -174,15 +189,22 @@ sub checksumtcp($){
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
 	print "tcp_checksum: $sum\n" if $debug;			#(debug): Reports the resulting checksum
+
+	my $end = Time::HiRes::time();		#Get finish time
+	$performance[3] += ($end-$begin);	#Add to total time for this sub
+
 	return $sum;	#Return the checksum
 }
 
 #Gets the checksum reported by TCP header (not calculated)
 sub getsumtcp($) {
 	#I will eventually have to do a sanity check with the IP header length (when that nibble is an unknown)
+	my $begin = Time::HiRes::time();			#Get start time of sub
 	my $sum = shift;							#get header data passed to this sub
 	my $offset = offset($sum);					#get IP header offset (not static, due to IP options)
 	$sum =~ s/^.{$offset}.{32}(....).*/$1/;		#Parse checksum bytes
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[4] += ($end-$begin);			#Add to total time for this sub
 	return $sum;								#Return the checksum reported by original IP header
 }
 
@@ -191,6 +213,7 @@ sub get_unknown($) {
 	#This function could be overkill for what I'm doing. I initially wanted to know the position of each ?,
 	#I don't think I currently need that info, but I still use this function for some of the artifacts that
 	#it produces
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $header = shift;					#Get header data passed to this sub
 	my $offset = offset($header);		#Get the length of IP heaader
 	$header =~ s/^(.{$offset}).*/$1/;	#Get just the IP header parsed out
@@ -205,12 +228,17 @@ sub get_unknown($) {
 		$i++;												#On to the next
 	}
 	$questions =~ s/^,//;									#Remove the first comma
+
+	my $end = Time::HiRes::time();							#Get finish time
+	$performance[5] += ($end-$begin);						#Add to total time for this sub
+
 	return $questions;										#Return our scalar csv line of where each ? is
 }
 
 #Get comma seperated list of offsets where ?'s are found
 sub get_unknown_tcp($) {
 	#See get_unknown() about how I feel about the relevance of this sub
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $header = shift;					#Get header data passed to this sub
 	my $offset = offset($header);		#Get the length of IP header
 	$header =~ s/^.{$offset}(.*)/$1/;	#Parse out just the TCP side of this
@@ -225,44 +253,60 @@ sub get_unknown_tcp($) {
 		$i++;												#On to the next
 	}
 	$questions =~ s/^,//;									#Remove the first comma
+
+	my $end = Time::HiRes::time();							#Get finish time
+	$performance[6] += ($end-$begin);						#Add to total time for this sub
+
 	return $questions;										#Return our scalar csv line of where each ? is
 }
 
 #Just parse out the IP header and return it
 sub get_ipdata{
+	my $begin = Time::HiRes::time();		#Get start time of sub
 	my $ip_data = shift;					#Get full header data passed to this sub
 	my $offset = offset($ip_data);			#get the offset
 	if ($ip_data =~ /^(.{$offset}).*/) {	#Parse the IP part of packet
 		$ip_data = $1;						#store it
 	}
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[7] += ($end-$begin);		#Add to total time for this sub
 	return $ip_data;						#return it
 }
 
 #Just parse out the TCP header and return it
 sub get_tcpdata{
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $tcp_data = shift;					#Get full header data passed to this sub
 	my $offset = offset($tcp_data);			#get the offset
 	if ($tcp_data =~ /^.{$offset}(.*)$/) {	#Parse the TCP part of packet
 		$tcp_data = $1;						#store it
 	}
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[8] += ($end-$begin);		#Add to total time for this sub
 	return $tcp_data;						#return it
 }
 
 sub offset {
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $sum = shift;			#Get header data passed to sub
 	my $offset;					#Container for the offset
 	if ($sum =~ /^.(.)/) {		#Parse out the second nibble
 		$offset = $1;			#store it
 		$offset *= 8;			#offset nibble times 4 (bytes) (but * 8 becuase each nibble is a character)
 	}
-	return $offset;				#Return the formatted offset
+	my $end = Time::HiRes::time();		#Get finish time
+	$performance[9] += ($end-$begin);	#Add to total time for this sub
+	return $offset;						#Return the formatted offset
 }
 
 #ASCII HEX encodes the brute-forcing part of our packet
 sub asciihex {
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $hexstring = $_[0];									#This is the bruteforce iteration
 	my $nibbles = $_[1];									#This is how many characters total to brute
 	$hexstring = sprintf("%.${nibbles}X\n", $hexstring);	#This ASCIIfies the brute force value
+	my $end = Time::HiRes::time();							#Get finish time
+	$performance[10] += ($end-$begin);						#Add to total time for this sub
 	return $hexstring;										#This returns it
 	#For example, say we were on $try 50 ($hexstring), and were guessing through 4 characters ($nibbles)
 	#	$hexstring = 50
@@ -270,10 +314,12 @@ sub asciihex {
 	#	$hextring would = 0032 (This is hex for 50)
 }
 
+#Creates a bruteforce guess with full packet
 sub createguess {
 	#Get params
-	my $data = $_[0];	#Our IP header with ?'s
-	my $try = $_[1];	#Our brute-force replacement for the ?'s
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	my $data = $_[0];					#Our IP header with ?'s
+	my $try = $_[1];					#Our brute-force replacement for the ?'s
 
 	my @trys = split('',$try);	#make each guess nibble seperate
 	my $nibbles = @trys;		#make note of now many nibbles there are
@@ -285,10 +331,15 @@ sub createguess {
 		$i++;						#Inc the brute nibble, on to the next ?
 	}
 
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[11] += ($end-$begin);			#Add to total time for this sub
+
 	return $data;	#Return our packet with no ?'s
 }
 
+#Routine for formatting output results in "english"
 sub display {
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $data = shift;				#Get header info, this is specifically IP header data
 	$result_line = "";				#init the "CSV" result line for this packet
 	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$prot,$sum,$saddr, $daddr, $options);	#Declare containers
@@ -314,21 +365,32 @@ sub display {
 	$result_line .= ",$options" if $options;	#If there are options, add a comma and the options
 	$result_line .= "\n";						#Regardless, newline it to prepare for next row of csv
 	@results = (@results, $result_line);		#Add this line to our total @results CSV format
+
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[12] += ($end-$begin);			#Add to total time for this sub
 }
 
+#Co-routine for the display sub, for formatting IP addresses
 sub display_ip {
+	my $begin = Time::HiRes::time();		#Get start time of sub
 	my $ip = shift;							#Take the IP
 	if ($ip =~ /(..)(..)(..)(..)/) {		#Get its octets
 		#Format it in a decimal dot notation and add it to our $result_line CSV format
 		$result_line .= hex($1) . "." . hex($2) . "." . hex($3) . "." . hex($4);
 	}
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[13] += ($end-$begin);		#Add to total time for this sub
 }
 
+#Sub for correlating results with geoip data
 sub geo {
 	#This is a stub for now
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	open IN, 'GeoLiteCity-Blocks.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is IN
 
 	close IN;
+	my $end = Time::HiRes::time();							#Get finish time
+	$performance[14] += ($end-$begin);						#Add to total time for this sub
 }
 
 #Example data that I work and test with...
@@ -378,6 +440,30 @@ while ($guess < $max_value) {					#While we still have values to guess
 geo();
 
 print "\n@results\n";
+
+if (defined $options{t}) {
+	print "Subroutine Performance:\n";
+	print "\tblackspace(): $performance[0]\n";
+	print "\tchecksum(): $performance[1]\n";
+	print "\tgetsum(): $performance[2]\n";
+	print "\tchecksumtcp(): $performance[3]\n";
+	print "\tgetsumtcp(): $performance[4]\n";
+	print "\tget_unknwon(): $performance[5]\n";
+	#print "\tget_unknown_tcp(): $performance[6]\n";
+	print "\tget_ipdata(): $performance[7]\n";
+	print "\tget_tcpdata(): $performance[8]\n";
+	print "\toffset(): $performance[9]\n";
+	print "\tasciihex(): $performance[10]\n";
+	print "\tcreateguess(): $performance[11]\n";
+	print "\tdisplay(): $performance[12]\n";
+	print "\tdisplay_ip(): $performance[13]\n";
+	print "\tgeo(): $performance[14]\n";
+	my $subtimes = 0;
+	foreach (@performance) {$subtimes += $_ if $_;}							
+	my $finish = Time::HiRes::time();
+	print "\tMain Program time: " . (($finish - $start) - $subtimes) . "\n";
+	print "\tTotal Time: " . ($finish - $start) . "\n";
+}
 
 #I might need this some day...
 #$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
