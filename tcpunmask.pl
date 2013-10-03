@@ -20,8 +20,7 @@ getopts("dhvt", \%options);			#Get the options passed
 help() if defined $options{h};
 my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
-#Define "CSV" header in @results array, this array will also hold the results from brute forcing
-my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
+my @results;				#Container for where we store the results of bruteforcing
 my $result_line;		#This is a container of just a single line for @results array
 my $data = shift @ARGV;	#Get the input TCP/IP header (starting at IP header data)
 if (!$data) {
@@ -390,10 +389,29 @@ sub display_tcp {
 
 	my $data = shift;					#Get packet
 	display($data);						#Print the IP stuff
+	$result_line = "";				#init the "CSV" result line for this packet
 	my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 	$results[-1] =~ s/\n$/,/;			#replace the newline in our IP row with a comma instead (since we now realize we are not done with the line)
 
-	@results = (@results, $tcp_data);	#Add the TCP data to it
+	my ($sport, $dport, $seq, $ack, $offset, $res, $flags, $window, $checksum, $urg, $dataz);	#Declare containers
+	if ($tcp_data =~ /(.{4})(.{4})(.{8})(.{8})(.)(.)(.{4})(.{4})(.{4})(.*)/) {	#Parse all the fields
+		$sport = $1;
+		$dport = $2;
+		$seq = $3;
+		$ack = $4;
+		$offset = $5;
+		$res = $6;
+		$window = $7;
+		$checksum = $8;
+		$urg = $9;
+		$dataz = $10 if ($10);	#If there's data, lets get that
+
+	}
+
+	$result_line .= hex($sport) . "," . hex($dport) . "," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . $res . "," . $window . "," . $checksum . "," . $urg;
+	$result_line .= ",$dataz" if $dataz;
+	$result_line .= "\n";
+	@results = (@results, $result_line);	#Add the TCP data to it
 
 	my $end = Time::HiRes::time();				#Get finish time
 	$performance[15] += ($end-$begin);			#Add to total time for this sub
@@ -467,6 +485,14 @@ my $progress;		#This is used to show user percent of progress of brute forcing
 $data = blackspace($data);			#Get rid of whitespace
 my $ip_data = get_ipdata($data);	#Isolate out IP data
 my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
+
+#Define "CSV" header in @results array, this array will also hold the results from brute forcing
+if ($tcp_data) {
+	@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
+} else {
+	@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address, Options\n";
+}
+
 my $original_sum = getsum($ip_data);		#Get the reported IP checksum in IP header
 my $original_sum_tcp = getsumtcp($data) if ($tcp_data);	#Get the reported TCP checksum in TCP header, if there is TCP data to be had
 print "Original IP sum: $original_sum\n" if $debug;			#(debug): Report what the IP Checksum is supposed to be
