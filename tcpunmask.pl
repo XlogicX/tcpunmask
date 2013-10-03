@@ -358,7 +358,7 @@ sub display {
 		$sum = $9;
 		$saddr = $10;
 		$daddr = $11;
-		$options = $12 if ($12);	#If there are options, print them raw
+		$options = $12 if (($12) && ($headl ne 5));	#If there are options, print them raw (only if header length is greater than 20)
 	}
 	#Add Ipversion, header length, TOS, IP-ID, Fragment, Protocol Type, and Checksum to $result_line
 	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "$tos," . hex($tl) . "," . "$id," . "$frag," . hex($ttl) . "," . "$prot," . "$sum,";
@@ -383,6 +383,20 @@ sub display_ip {
 	}
 	my $end = Time::HiRes::time();			#Get finish time
 	$performance[13] += ($end-$begin);		#Add to total time for this sub
+}
+
+sub display_tcp {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+
+	my $data = shift;					#Get packet
+	display($data);						#Print the IP stuff
+	my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
+	$results[-1] =~ s/\n$/,/;			#replace the newline in our IP row with a comma instead (since we now realize we are not done with the line)
+
+	@results = (@results, $tcp_data);	#Add the TCP data to it
+
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[15] += ($end-$begin);			#Add to total time for this sub
 }
 
 #Sub for correlating results with geoip data
@@ -413,6 +427,7 @@ sub perf {
 	print "\tcreateguess(): $performance[11]\n";
 	print "\tdisplay(): $performance[12]\n";
 	print "\tdisplay_ip(): $performance[13]\n";
+	print "\tdisplay_tcp(): $performance[15]\n";
 	print "\tgeo(): $performance[14]\n";
 	my $subtimes = 0;
 	foreach (@performance) {$subtimes += $_ if $_;}							
@@ -482,13 +497,13 @@ while ($guess < $max_value) {					#While we still have values to guess
 
 	#Brute it
 	if (checksum($data_try) =~ /$original_sum/i) {								#If the IP bruteforce attempt checksum result matches the expected one
-		if (($tcp_data) && (checksumtcp($data_try . $tcp_data)) =~ /$original_sum_tcp/i) {		#Check that the same is true for TCP as well
-			display($data_try);													#If so, add it to our list of valid results
-		} elsif (!$tcp_data) {
-			display($data_try);
+		if (($tcp_data) && (checksumtcp($data_try . $tcp_data)) =~ /$original_sum_tcp/i) {		#If theres TCP data, check that the same is true for TCP as well
+			display_tcp($data_try . $tcp_data);													#If so, add it to our list of valid results
+		} elsif (!$tcp_data) {																	#If no tcp data
+			display($data_try);																	#Still a match for IP, so print that
 		}
 	}
-	$guess++;																	#Next Guess
+	$guess++;																					#Next Guess
 }
 
 geo();
