@@ -5,11 +5,10 @@ use strict;
 use Getopt::Std;
 use Time::HiRes;
 ##Whishlist
-	#TCP!
-	#Make outputs more granular / more better
-	#Add GeoIP datas
-	#Cross reference bogons
-	#Add --options to reduce invalid fields
+	#Make outputs more granular / more better (low priority)
+	#Add GeoIP datas	(medium priority)
+	#Cross reference bogons		(high priority)
+	#Add --options to reduce invalid fields	(medium priority)
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
@@ -320,7 +319,7 @@ sub asciihex {
 sub createguess {
 	#Get params
 	my $begin = Time::HiRes::time();	#Get start time of sub
-	my $data = $_[0];					#Our IP header with ?'s
+	my $data = $_[0];					#Our header with ?'s
 	my $try = $_[1];					#Our brute-force replacement for the ?'s
 
 	my @trys = split('',$try);	#make each guess nibble seperate
@@ -474,10 +473,15 @@ sub help {
 }
 
 my @guesses;		#Container for the offset locations of where ?'s are
+my @guesses_tcp;	#Container for the offset locations of where ?'s are in TCP header
 my $max_value;		#Container that stores the amount of brute force attempts needed (used for looping)
+my $max_value_tcp;	#Container that stores the amount of brute force attempts needed for tcp (used for looping)
 my $guess = 0;		#Container for the current guess we are on, it obviously starts at 0
+my $guess_tcp = 0;	#Container for the current TCP guess we are on, it obviously starts at 0
 my $try;			#The brute force data being tried (only stores the guess/unknwon data, not the entire packet)
-my $data_try;		#This is the actual data of the entire packet along with the guess data integrated in
+my $try_tcp;		#The brute force data being tried for TCP
+my $data_try;		#This is the actual data of the IP header along with the guess data integrated in
+my $data_try_tcp;	#This is the actual data of the TCP header along with the guess data integrated in
 my $i;				#A throwaway loop counter
 my $progress;		#This is used to show user percent of progress of brute forcing
 
@@ -500,6 +504,9 @@ print "Original TCP sum: $original_sum_tcp\n" if $debug;	#(debug): Report what t
 @guesses = split(',',get_unknown($ip_data));	#get offset of unknown nibbles
 my $nibbles_to_guess = @guesses;				#get amount of offsets (all we really needed...)
 $max_value = 2 ** ($nibbles_to_guess * 4);		#numerical value to terminate bruteforcing on
+@guesses_tcp = split(',',get_unknown_tcp($data));	#get offset of unknown nibbles
+my $nibbles_to_guess_tcp = @guesses_tcp;			#get amount of offsets (all we really needed...)
+$max_value_tcp = 2 ** ($nibbles_to_guess_tcp * 4);		#numerical value to terminate bruteforcing on
 
 #This is the guts of the actual brute forcing
 print "Attempting IP Brute forcing\n";			#Let user know that you are bruteforcing the IP headers
@@ -512,22 +519,24 @@ while ($guess < $max_value) {					#While we still have values to guess
 	$data_try = createguess($ip_data, $try);	#Combine guess with packet
 
 	#If Verbose is specified, print some stats out, like the packet and checksums of the current try
-	my $status;				#Create status display variable
-	if ($tcp_data) {		#if we have tcp data, format the status to reflect TCP data as well
-		$status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " " . checksumtcp($data_try . $tcp_data) . " for " . $original_sum . "/" . $original_sum_tcp if defined $options{v};
-	} else {				#Otherwise, just the IP stuff
-		$status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " for " . $original_sum if defined $options{v};
-	}
+	my $status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " for " . $original_sum if defined $options{v};
 	$status =~ s/\n// if defined $options{v};	#"Chomp" it (if -v still)
 	print $status if defined $options{v};		#print the status (-v)
 
 	#Brute it
 	if (checksum($data_try) =~ /$original_sum/i) {								#If the IP bruteforce attempt checksum result matches the expected one
-		if (($tcp_data) && (checksumtcp($data_try . $tcp_data)) =~ /$original_sum_tcp/i) {		#If theres TCP data, check that the same is true for TCP as well
-			display_tcp($data_try . $tcp_data);													#If so, add it to our list of valid results
-		} elsif (!$tcp_data) {																	#If no tcp data
-			display($data_try);																	#Still a match for IP, so print that
+		$guess_tcp = 0;
+		while ($guess_tcp < $max_value_tcp) {						#While we still have values to guess
+			$try_tcp = asciihex($guess_tcp,$nibbles_to_guess_tcp);	#Create the data guess (just the guess, not whole packet)
+			$data_try_tcp = createguess($tcp_data, $try_tcp);		#Combine guess with packet
+			if (($tcp_data) && (checksumtcp($data_try . $data_try_tcp)) =~ /$original_sum_tcp/i) {		#If theres TCP data, check that the same is true for TCP as well
+				display_tcp($data_try . $data_try_tcp);													#If so, add it to our list of valid results
+			} elsif (!$tcp_data) {																	#If no tcp data
+				display($data_try);																	#Still a match for IP, so print that
+			}
+		$guess_tcp++;
 		}
+
 	}
 	$guess++;																					#Next Guess
 }
