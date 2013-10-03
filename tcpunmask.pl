@@ -28,7 +28,6 @@ if (!$data) {
 	print "\nYou didn't enter a packet, here's help\n\n";
 	help();
 }
-
 my @performance;	#Array to hold time values of how long each sub-routine takes
 
 ###############SubRoutines################
@@ -441,9 +440,6 @@ sub help {
 	exit;
 }
 
-#Example data that I work and test with...
-#my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
-
 my @guesses;		#Container for the offset locations of where ?'s are
 my $max_value;		#Container that stores the amount of brute force attempts needed (used for looping)
 my $guess = 0;		#Container for the current guess we are on, it obviously starts at 0
@@ -457,7 +453,7 @@ $data = blackspace($data);			#Get rid of whitespace
 my $ip_data = get_ipdata($data);	#Isolate out IP data
 my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 my $original_sum = getsum($ip_data);		#Get the reported IP checksum in IP header
-my $original_sum_tcp = getsumtcp($data);	#Get the reported TCP checksum in TCP header
+my $original_sum_tcp = getsumtcp($data) if ($tcp_data);	#Get the reported TCP checksum in TCP header, if there is TCP data to be had
 print "Original IP sum: $original_sum\n" if $debug;			#(debug): Report what the IP Checksum is supposed to be
 print "Original TCP sum: $original_sum_tcp\n" if $debug;	#(debug): Report what the TCP Checksum is supposed to be
 @guesses = split(',',get_unknown($ip_data));	#get offset of unknown nibbles
@@ -473,13 +469,23 @@ while ($guess < $max_value) {					#While we still have values to guess
 	print "% done";								#and percentage symbol at the end
 	$try = asciihex($guess,$nibbles_to_guess);	#Create the data guess (just the guess, not whole packet)
 	$data_try = createguess($ip_data, $try);	#Combine guess with packet
+
 	#If Verbose is specified, print some stats out, like the packet and checksums of the current try
-	my $status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " " . checksumtcp($data_try . $tcp_data) . " for " . $original_sum . "/" . $original_sum_tcp if defined $options{v};
-	$status =~ s/\n// if defined $options{v};									#"Chomp" it (if -v still)
-	print $status if defined $options{v};										#print the status (-v)
+	my $status;				#Create status display variable
+	if ($tcp_data) {		#if we have tcp data, format the status to reflect TCP data as well
+		$status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " " . checksumtcp($data_try . $tcp_data) . " for " . $original_sum . "/" . $original_sum_tcp if defined $options{v};
+	} else {				#Otherwise, just the IP stuff
+		$status = "\tTrying IPHeader: " . $data_try . " " . checksum($data_try) . " for " . $original_sum if defined $options{v};
+	}
+	$status =~ s/\n// if defined $options{v};	#"Chomp" it (if -v still)
+	print $status if defined $options{v};		#print the status (-v)
+
+	#Brute it
 	if (checksum($data_try) =~ /$original_sum/i) {								#If the IP bruteforce attempt checksum result matches the expected one
-		if (checksumtcp($data_try . $tcp_data) =~ /$original_sum_tcp/i) {		#Check that the same is true for TCP as well
+		if (($tcp_data) && (checksumtcp($data_try . $tcp_data)) =~ /$original_sum_tcp/i) {		#Check that the same is true for TCP as well
 			display($data_try);													#If so, add it to our list of valid results
+		} elsif (!$tcp_data) {
+			display($data_try);
 		}
 	}
 	$guess++;																	#Next Guess
