@@ -13,18 +13,22 @@ use Time::HiRes;
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
-	#Add help listing
-	#Add timers, to evaluate performance
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
-getopts("dvt", \%options);			#Get the options passed
+getopts("dhvt", \%options);			#Get the options passed
+help() if defined $options{h};
 my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
 #Define "CSV" header in @results array, this array will also hold the results from brute forcing
 my @results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address, Destination Address, Options/TCP data\n";
 my $result_line;		#This is a container of just a single line for @results array
 my $data = shift @ARGV;	#Get the input TCP/IP header (starting at IP header data)
+if (!$data) {
+	print "\nYou didn't enter a packet, here's help\n\n";
+	help();
+}
+
 my @performance;	#Array to hold time values of how long each sub-routine takes
 
 ###############SubRoutines################
@@ -393,6 +397,50 @@ sub geo {
 	$performance[14] += ($end-$begin);						#Add to total time for this sub
 }
 
+#Routine for displaying detailed subroutine performance
+sub perf {
+	print "Subroutine Performance:\n";
+	print "\tblackspace(): $performance[0]\n";
+	print "\tchecksum(): $performance[1]\n";
+	print "\tgetsum(): $performance[2]\n";
+	print "\tchecksumtcp(): $performance[3]\n";
+	print "\tgetsumtcp(): $performance[4]\n";
+	print "\tget_unknwon(): $performance[5]\n";
+	#print "\tget_unknown_tcp(): $performance[6]\n";
+	print "\tget_ipdata(): $performance[7]\n";
+	print "\tget_tcpdata(): $performance[8]\n";
+	print "\toffset(): $performance[9]\n";
+	print "\tasciihex(): $performance[10]\n";
+	print "\tcreateguess(): $performance[11]\n";
+	print "\tdisplay(): $performance[12]\n";
+	print "\tdisplay_ip(): $performance[13]\n";
+	print "\tgeo(): $performance[14]\n";
+	my $subtimes = 0;
+	foreach (@performance) {$subtimes += $_ if $_;}							
+	my $finish = Time::HiRes::time();
+	print "\tMain Program time: " . (($finish - $start) - $subtimes) . "\n";
+	print "\tTotal Time: " . ($finish - $start) . "\n";
+}
+
+sub help {
+	print "NAME\n";
+	print "\ttcpunmask - Attempt to unmask sanitized data from TCP/IP packet\n\n";
+	print "SYNOPSIS\n";
+	print "\ttcpdump [ -vhdt ] packetdata\n\n";
+	print "DESCRIPTION\n";
+	print "\ttcpunmask takes a packet as input in ASCII-Hex format. Sanitized nibbles are formatted as ?'s. tcpunmask will attempt every possibly data value in place of these unknown nibbles and check to see if the checksum(s) match the ones reported in the packet data. Becuase of this, this script will not function if the checksums are also sanitized.\n\n";
+	print "\tWhen finished, tcpmask will report all valid packets based on checksum matches. The report is displayed with values seperated by commas; this way you can redirect stdout to a csv file for further filtering\n\n";
+	print "OPTIONS\n";
+	print "\t-v\tVerbose. While brute forcing, this will display each packet that is currently being attempted, along with the calculated IP & TCP checksums\n\n";
+	print "\t-h\tHelp. Displays this dialog\n";
+	print "\t-d\tDebug. Because I haven't looked at 'perl -d' yet, So I go old school and use liberal 'print' statements here and there (only executed with -d)\n\n";
+	print "\t-t\tThis is for performance debugging, it will give me the time spent for each subroutine, the main program, and total.\n\n";
+	print "EXAMPLES\n";
+	print "\tWe are guessing the last 2 octets of the Source IP Address, we would also like verbose mode\n";
+	print "\t\ttcpunmask.pl -v 45000034001c4000400624a40a00????0a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4\n";
+	exit;
+}
+
 #Example data that I work and test with...
 #my $data = "45 00 00 34 00 1c 40 00 40 06 24 a4 0a 00 01 02 0a 00 01 03 01 bd c0 bc 98 4c 4d 61 8f b4 80 cd 80 11 03 89 98 DC 00 00 01 01 08 0a 0b b2 4d 88 31 7a 80 f4"; #full TCP packet
 
@@ -441,29 +489,7 @@ geo();
 
 print "\n@results\n";
 
-if (defined $options{t}) {
-	print "Subroutine Performance:\n";
-	print "\tblackspace(): $performance[0]\n";
-	print "\tchecksum(): $performance[1]\n";
-	print "\tgetsum(): $performance[2]\n";
-	print "\tchecksumtcp(): $performance[3]\n";
-	print "\tgetsumtcp(): $performance[4]\n";
-	print "\tget_unknwon(): $performance[5]\n";
-	#print "\tget_unknown_tcp(): $performance[6]\n";
-	print "\tget_ipdata(): $performance[7]\n";
-	print "\tget_tcpdata(): $performance[8]\n";
-	print "\toffset(): $performance[9]\n";
-	print "\tasciihex(): $performance[10]\n";
-	print "\tcreateguess(): $performance[11]\n";
-	print "\tdisplay(): $performance[12]\n";
-	print "\tdisplay_ip(): $performance[13]\n";
-	print "\tgeo(): $performance[14]\n";
-	my $subtimes = 0;
-	foreach (@performance) {$subtimes += $_ if $_;}							
-	my $finish = Time::HiRes::time();
-	print "\tMain Program time: " . (($finish - $start) - $subtimes) . "\n";
-	print "\tTotal Time: " . ($finish - $start) . "\n";
-}
+perf() if (defined $options{t});
 
 #I might need this some day...
 #$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
