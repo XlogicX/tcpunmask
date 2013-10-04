@@ -27,7 +27,8 @@ if (!$data) {
 	print "\nYou didn't enter a packet, here's help\n\n";
 	help();
 }
-my @performance;	#Array to hold time values of how long each sub-routine takes
+my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
+my $bogons = bogonreq() if defined $options{b};				#Get bogons from Cymru
 
 ###############SubRoutines################
 
@@ -428,28 +429,31 @@ sub geo {
 	$performance[14] += ($end-$begin);						#Add to total time for this sub
 }
 
+sub bogonreq {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	my $ua = LWP::UserAgent->new;	#$ua is our web object
+	my $response = $ua->get('http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt');
+	if ($response->is_success) {
+		$response = $response->decoded_content;  # or whatever
+	} else {
+		die $response->status_line;
+	}
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[16] += ($end-$begin);		#Add to total time for this sub
+	return $response;
+}
+
 sub bogon {
 	#https://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
+	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $packet = shift;					#Get packet
-	my $ua = LWP::UserAgent->new;	#$ua is our web object
-
-	#packet for testing
-	#my $packet = "45000034001c4000400624a40a0001020a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4";
-	#my $packet =  "45000034001c4000400624a40a000102175CE00501bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4";
+	my $response = $bogons;
 
 	#Get Source and Dest IP's (in decimal form)
 	my ($source, $dest);
 	if ($packet =~ /^.{24}(.{8})(.{8})/) {
 		$source = hex($1);
 		$dest = hex($2);
-	}
-
-
-	my $response = $ua->get('http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt');
-	if ($response->is_success) {
-		$response = $response->decoded_content;  # or whatever
-	} else {
-		die $response->status_line;
 	}
 
 	#Gotta make a better data structure for CIDR IP's
@@ -486,7 +490,8 @@ sub bogon {
 			$i++;
 		}
 	}
-
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[17] += ($end-$begin);		#Add to total time for this sub
 }
 
 #Routine for displaying detailed subroutine performance
@@ -508,6 +513,8 @@ sub perf {
 	print "\tdisplay_ip(): $performance[13]\n";
 	print "\tdisplay_tcp(): $performance[15]\n";
 	print "\tgeo(): $performance[14]\n";
+	print "\tbogonreq(): $performance[16]\n";
+	print "\tbogon(): $performance[17]\n";
 	my $subtimes = 0;
 	foreach (@performance) {$subtimes += $_ if $_;}							
 	my $finish = Time::HiRes::time();
@@ -528,13 +535,12 @@ sub help {
 	print "\t-h\tHelp. Displays this dialog\n";
 	print "\t-d\tDebug. Because I haven't looked at 'perl -d' yet, So I go old school and use liberal 'print' statements here and there (only executed with -d)\n\n";
 	print "\t-t\tThis is for performance debugging, it will give me the time spent for each subroutine, the main program, and total.\n\n";
+	print "\t-b\tBogon Be-gone. With this enabled, current bogons will be filtered out of results (https://www.team-cymru.org/Services/Bogons/)\n\n";
 	print "EXAMPLES\n";
 	print "\tWe are guessing the last 2 octets of the Source IP Address, we would also like verbose mode\n";
 	print "\t\ttcpunmask.pl -v 45000034001c4000400624a40a00????0a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4\n";
 	exit;
 	#175CE005 is a bogon
-
-	#45000034001c400040063844175CE0050a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080aac7c4d88317a80f4
 }
 
 my @guesses;		#Container for the offset locations of where ?'s are
