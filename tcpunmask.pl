@@ -4,6 +4,7 @@ use warnings;
 use strict;
 use Getopt::Std;
 use Time::HiRes;
+use LWP::UserAgent;		#This is for bogons and geoIP data
 ##Whishlist
 	#Make outputs more granular / more better (low priority)
 	#Add GeoIP datas	(medium priority)
@@ -15,7 +16,7 @@ use Time::HiRes;
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
-getopts("dhvt", \%options);			#Get the options passed
+getopts("dhvtb", \%options);			#Get the options passed
 help() if defined $options{h};
 my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
@@ -427,6 +428,67 @@ sub geo {
 	$performance[14] += ($end-$begin);						#Add to total time for this sub
 }
 
+sub bogon {
+	#https://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
+	my $packet = shift;					#Get packet
+	my $ua = LWP::UserAgent->new;	#$ua is our web object
+
+	#packet for testing
+	#my $packet = "45000034001c4000400624a40a0001020a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4";
+	#my $packet =  "45000034001c4000400624a40a000102175CE00501bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4";
+
+	#Get Source and Dest IP's (in decimal form)
+	my ($source, $dest);
+	if ($packet =~ /^.{24}(.{8})(.{8})/) {
+		$source = hex($1);
+		$dest = hex($2);
+	}
+
+
+	my $response = $ua->get('http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt');
+	if ($response->is_success) {
+		$response = $response->decoded_content;  # or whatever
+	} else {
+		die $response->status_line;
+	}
+
+	#Gotta make a better data structure for CIDR IP's
+	my @networks = split("\n", $response);	#Get each CIDR line
+	splice (@networks, 0, 1);				#Get rid of first line, of which is a comment
+	my $i = 0;									#just a loop cntr
+	foreach (@networks) {
+		my $network = $_;
+		if (($network ne '10.0.0.0/8') && ($network ne '10.0.0.0/8') && ($network ne '10.0.0.0/8')){
+			my $cidr;
+			my $range;
+			if ($network =~ /(.+?)\/(\d+)/) {
+				$cidr = $2;
+				my $start = $1;
+				if ($start =~ /(\d+?)\.(\d+?)\.(\d+?)\.(\d+?)/) {
+					$start = ($1 * 16777216) + ($2 * 65536) + ($3 * 256) + $4;
+				}
+				my $end = ($start + ((2 ** (32 - $cidr)) - 1));
+
+				if (($source > $start) && ($source < $end)) {
+					#print "Source is a bogon\n";
+					return 'bogon';
+				}
+				if (($dest > $start) && ($dest < $end)) {
+					#print "Dest is a bogon\n";
+					return 'bogon';
+				}
+
+				$range = "$start,$end";
+			} else {
+				$range = $network;
+			}
+			$networks[$i] = $range;
+			$i++;
+		}
+	}
+
+}
+
 #Routine for displaying detailed subroutine performance
 sub perf {
 	print "Subroutine Performance:\n";
@@ -436,7 +498,7 @@ sub perf {
 	print "\tchecksumtcp(): $performance[3]\n";
 	print "\tgetsumtcp(): $performance[4]\n";
 	print "\tget_unknwon(): $performance[5]\n";
-	#print "\tget_unknown_tcp(): $performance[6]\n";
+	print "\tget_unknown_tcp(): $performance[6]\n";
 	print "\tget_ipdata(): $performance[7]\n";
 	print "\tget_tcpdata(): $performance[8]\n";
 	print "\toffset(): $performance[9]\n";
@@ -470,6 +532,9 @@ sub help {
 	print "\tWe are guessing the last 2 octets of the Source IP Address, we would also like verbose mode\n";
 	print "\t\ttcpunmask.pl -v 45000034001c4000400624a40a00????0a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4\n";
 	exit;
+	#175CE005 is a bogon
+
+	#45000034001c400040063844175CE0050a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080aac7c4d88317a80f4
 }
 
 my @guesses;		#Container for the offset locations of where ?'s are
@@ -530,9 +595,16 @@ while ($guess < $max_value) {					#While we still have values to guess
 			$try_tcp = asciihex($guess_tcp,$nibbles_to_guess_tcp);	#Create the data guess (just the guess, not whole packet)
 			$data_try_tcp = createguess($tcp_data, $try_tcp);		#Combine guess with packet
 			if (($tcp_data) && (checksumtcp($data_try . $data_try_tcp)) =~ /$original_sum_tcp/i) {		#If theres TCP data, check that the same is true for TCP as well
-				display_tcp($data_try . $data_try_tcp);													#If so, add it to our list of valid results
+				if ((defined $options{b}) && (bogon($data_try)) eq 'bogon') {
+				} else {
+					display_tcp($data_try . $data_try_tcp);			#If so, add it to our list of valid results
+				}
+											
 			} elsif (!$tcp_data) {																	#If no tcp data
-				display($data_try);																	#Still a match for IP, so print that
+				if ((defined $options{b}) && (bogon($data_try)) eq 'bogon') {
+				} else {
+						display($data_try);																	#Still a match for IP, so print that
+				}		
 			}
 		$guess_tcp++;
 		}
