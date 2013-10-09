@@ -8,7 +8,7 @@ use LWP::UserAgent;		#This is for bogons and geoIP data
 ##Whishlist
 	#Make outputs more granular / more better (low priority)
 	#Add GeoIP datas	(medium priority)
-	#Cross reference bogons		(high priority)
+	#Add ability to take multiple packets and correlate common data out of them (low priority, but high awesomeness)
 	#Add --options to reduce invalid fields	(medium priority)
 		#only ipv4
 		#ip header length below 20 is invalid
@@ -16,7 +16,7 @@ use LWP::UserAgent;		#This is for bogons and geoIP data
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
-getopts("dhvtb", \%options);			#Get the options passed
+getopts("dhvtbo:", \%options);			#Get the options passed
 help() if defined $options{h};
 my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
@@ -621,7 +621,13 @@ while ($guess < $max_value) {					#While we still have values to guess
 
 geo();
 
-print "\n@results\n";
+if (defined $options{o}) {
+	open OUT, ">$options{o}";
+	print OUT @results;
+	print "\n";
+} else {
+	print "\n@results\n";
+}
 
 perf() if (defined $options{t});
 
