@@ -16,7 +16,7 @@ use LWP::UserAgent;		#This is for bogons and geoIP data
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
-getopts("dhvtbo:", \%options);			#Get the options passed
+getopts("dhvtbo:g", \%options);			#Get the options passed
 help() if defined $options{h};
 my $debug = 0;						#A flag for the -d option
 $debug = 1 if defined $options{d};
@@ -420,11 +420,48 @@ sub display_tcp {
 
 #Sub for correlating results with geoip data
 sub geo {
-	#This is a stub for now
+	#geoblocks[0] is start IP (decimal)
+	#geoblocks[1] is upper IP (decimal)
+	#geoblocks[2] is "cell number" of location info from geolocations[] (have to add 1 as offset)
+	#geolocations[0] is Country
+	#geolocations[1] is Region
+	#geolocations[2] is City
+	#Usage:
+	#		print "\nLower Boundry is $geoblocks[11][0] and locID is $geoblocks[11][2] which is in city of $geolocations[$geoblocks[11][2]+1][2] country of $geolocations[$geoblocks[11][2]+1][0]\n";
 	my $begin = Time::HiRes::time();	#Get start time of sub
-	open IN, 'GeoLiteCity-Blocks.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is IN
+	print "Building GeoIP datastructure\n";
+	open BLOCKS, 'GeoLiteCity-Blocks.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is BLOCKS
+	open LOCATIONS, 'GeoLiteCity-Location.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is LOCATIONS
 
-	close IN;
+	my @blocks = <BLOCKS>;
+	my @geoblocks;
+
+	my $i = 0;
+	foreach (@blocks) {
+		$_ =~ s/\"//g;
+		my @blockz = split(",", $_);
+		chomp($blockz[2]) if $blockz[2];
+		$geoblocks[$i][0] = $blockz[0] if $blockz[0];
+		$geoblocks[$i][1] = $blockz[1] if $blockz[1];
+		$geoblocks[$i][2] = $blockz[2] if $blockz[2];		
+		$i++;
+	}
+
+	my @locations = <LOCATIONS>;
+	my @geolocations;
+#locId,country,region,city,postalCode,latitude,longitude,metroCode,areaCode
+	$i = 0;
+	foreach (@locations) {
+		$_ =~ s/\"//g;
+		my @locationz = split(",", $_);
+		chomp($locationz[8]) if $locationz[8];
+		$geolocations[$i][0] = $locationz[1] if $locationz[1];
+		$geolocations[$i][1] = $locationz[2] if $locationz[2];	
+		$geolocations[$i][2] = $locationz[3] if $locationz[3];				
+		$i++;
+	}	
+	close BLOCKS;
+	close LOCATIONS;
 	my $end = Time::HiRes::time();							#Get finish time
 	$performance[14] += ($end-$begin);						#Add to total time for this sub
 }
@@ -526,7 +563,7 @@ sub help {
 	print "NAME\n";
 	print "\ttcpunmask - Attempt to unmask sanitized data from TCP/IP packet\n\n";
 	print "SYNOPSIS\n";
-	print "\ttcpdump [ -vhdt ] packetdata\n\n";
+	print "\ttcpdump [ -vhdtbog ] packetdata\n\n";
 	print "DESCRIPTION\n";
 	print "\ttcpunmask takes a packet as input in ASCII-Hex format. Sanitized nibbles are formatted as ?'s. tcpunmask will attempt every possibly data value in place of these unknown nibbles and check to see if the checksum(s) match the ones reported in the packet data. Becuase of this, this script will not function if the checksums are also sanitized.\n\n";
 	print "\tWhen finished, tcpmask will report all valid packets based on checksum matches. The report is displayed with values seperated by commas; this way you can redirect stdout to a csv file for further filtering\n\n";
@@ -536,6 +573,8 @@ sub help {
 	print "\t-d\tDebug. Because I haven't looked at 'perl -d' yet, So I go old school and use liberal 'print' statements here and there (only executed with -d)\n\n";
 	print "\t-t\tThis is for performance debugging, it will give me the time spent for each subroutine, the main program, and total.\n\n";
 	print "\t-b\tBogon Be-gone. With this enabled, current bogons will be filtered out of results (https://www.team-cymru.org/Services/Bogons/)\n\n";
+	print "\t-o\tOutput. In the format of '-o results.csv'. Since output is already comma seperated, .csv makes sense\n\n";
+	print "\t-g\tGeoIP. This adds another 'column' to our results; correlating GeoIP data with each packet, based on IP addresses\n\n";
 	print "EXAMPLES\n";
 	print "\tWe are guessing the last 2 octets of the Source IP Address, we would also like verbose mode\n";
 	print "\t\ttcpunmask.pl -v 45000034001c4000400624a40a00????0a00010301bdc0bc984c4d618fb480cd8011038998DC00000101080a0bb24d88317a80f4\n";
@@ -567,6 +606,8 @@ if ($tcp_data) {
 } else {
 	@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address, Options\n";
 }
+
+geo() if defined $options{g};
 
 my $original_sum = getsum($ip_data);		#Get the reported IP checksum in IP header
 my $original_sum_tcp = getsumtcp($data) if ($tcp_data);	#Get the reported TCP checksum in TCP header, if there is TCP data to be had
@@ -618,8 +659,6 @@ while ($guess < $max_value) {					#While we still have values to guess
 	}
 	$guess++;																					#Next Guess
 }
-
-geo();
 
 if (defined $options{o}) {
 	open OUT, ">$options{o}";
