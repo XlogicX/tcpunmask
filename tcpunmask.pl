@@ -27,8 +27,14 @@ if (!$data) {
 	print "\nYou didn't enter a packet, here's help\n\n";
 	help();
 }
-my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
+my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
 my $bogons = bogonreq() if defined $options{b};				#Get bogons from Cymru
+my @geoblocks;												#holds start and end IP, and location offset for @geolocations
+my @geolocations;											#holds Country, Region, and City (among other things)
+my $geosource = "NA,NA,NA\n";
+my $geodest = "NA,NA,NA\n";
+my $ip_data;
+my $tcp_data;
 
 ###############SubRoutines################
 
@@ -366,6 +372,8 @@ sub display {
 	$result_line .= ",";						#Add the comma seperator
 	display_ip($daddr);							#Add Destination address to result line
 	$result_line .= ",$options" if $options;	#If there are options, add a comma and the options
+	$result_line .= ",,$geosource,$geodest" if ((defined $options{g}) && (!$tcp_data));
+	$result_line =~ s/\n|\s//g;
 	$result_line .= "\n";						#Regardless, newline it to prepare for next row of csv
 	@results = (@results, $result_line);		#Add this line to our total @results CSV format
 
@@ -411,6 +419,8 @@ sub display_tcp {
 
 	$result_line .= hex($sport) . "," . hex($dport) . "," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . $res . "," . $window . "," . $checksum . "," . $urg;
 	$result_line .= ",$dataz" if $dataz;
+	$result_line .= ",,$geosource,$geodest" if defined $options{g};
+	$result_line =~ s/\n|\s//g;
 	$result_line .= "\n";
 	@results = (@results, $result_line);	#Add the TCP data to it
 
@@ -430,11 +440,11 @@ sub geo {
 	#		print "\nLower Boundry is $geoblocks[11][0] and locID is $geoblocks[11][2] which is in city of $geolocations[$geoblocks[11][2]+1][2] country of $geolocations[$geoblocks[11][2]+1][0]\n";
 	my $begin = Time::HiRes::time();	#Get start time of sub
 	print "Building GeoIP datastructure\n";
-	open BLOCKS, 'GeoLiteCity-Blocks.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is BLOCKS
-	open LOCATIONS, 'GeoLiteCity-Location.csv' or die "The file has to actually exist, try again $!\n";	#input filehandle is LOCATIONS
+	#These csv files were obtained from http://dev.maxmind.com/geoip/legacy/geolite/
+	open BLOCKS, 'GeoLiteCity-Blocks.csv' or die "GeoLiteCity-Blocks.csv not found, you can get it from http://dev.maxmind.com/geoip/legacy/geolite/ $!\n";	#input filehandle is BLOCKS
+	open LOCATIONS, 'GeoLiteCity-Location.csv' or die "GeoLiteCity-Location.csv not found, you can get it from http://dev.maxmind.com/geoip/legacy/geolite/ $!\n";	#input filehandle is LOCATIONS
 
 	my @blocks = <BLOCKS>;
-	my @geoblocks;
 
 	my $i = 0;
 	foreach (@blocks) {
@@ -448,8 +458,6 @@ sub geo {
 	}
 
 	my @locations = <LOCATIONS>;
-	my @geolocations;
-#locId,country,region,city,postalCode,latitude,longitude,metroCode,areaCode
 	$i = 0;
 	foreach (@locations) {
 		$_ =~ s/\"//g;
@@ -464,6 +472,40 @@ sub geo {
 	close LOCATIONS;
 	my $end = Time::HiRes::time();							#Get finish time
 	$performance[14] += ($end-$begin);						#Add to total time for this sub
+}
+
+sub geoip {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+
+	my $packet = shift;					#Get packet
+
+	#Get Source and Dest IP's (in decimal form)
+	my ($source, $dest);
+	if ($packet =~ /^.{24}(.{8})(.{8})/) {
+		$source = hex($1);
+		$dest = hex($2);
+	}
+
+	#Gotta make a better data structure for CIDR IP's
+	my $i = 0;
+	foreach (@geoblocks) {
+		my $start = $geoblocks[$i][0];
+		my $end = $geoblocks[$i][1];
+		if (($i > 2) && ($source > $start) && ($source < $end)) {
+			if ($geolocations[$geoblocks[$i][2]+1][0]) {$geosource = "$geolocations[$geoblocks[$i][2]+1][0],";} else {$geosource = "NA,";}
+			if ($geolocations[$geoblocks[$i][2]+1][1]) {$geosource .= "$geolocations[$geoblocks[$i][2]+1][1],";} else {$geosource .= "NA,";}
+			if ($geolocations[$geoblocks[$i][2]+1][2]) {$geosource .= "$geolocations[$geoblocks[$i][2]+1][2]";} else {$geosource .= "NA";}
+		}
+		if (($i > 2) && ($dest > $start) && ($dest < $end)) {
+			if ($geolocations[$geoblocks[$i][2]+1][0]) {$geodest = "$geolocations[$geoblocks[$i][2]+1][0],";} else {$geodest = "NA,";}
+			if ($geolocations[$geoblocks[$i][2]+1][1]) {$geodest .= "$geolocations[$geoblocks[$i][2]+1][1],";} else {$geodest .= "NA,";}
+			if ($geolocations[$geoblocks[$i][2]+1][2]) {$geodest .= "$geolocations[$geoblocks[$i][2]+1][2]";} else {$geodest .= "NA";}
+		}
+		$i++;
+	}
+
+	my $end = Time::HiRes::time();			#Get finish time
+	$performance[18] += ($end-$begin);		#Add to total time for this sub
 }
 
 sub bogonreq {
@@ -550,6 +592,7 @@ sub perf {
 	print "\tdisplay_ip(): $performance[13]\n";
 	print "\tdisplay_tcp(): $performance[15]\n";
 	print "\tgeo(): $performance[14]\n";
+	print "\tgeoip(): $performance[18]\n";
 	print "\tbogonreq(): $performance[16]\n";
 	print "\tbogon(): $performance[17]\n";
 	my $subtimes = 0;
@@ -597,14 +640,22 @@ my $progress;		#This is used to show user percent of progress of brute forcing
 
 #Set up the data to be ready for brute forcing
 $data = blackspace($data);			#Get rid of whitespace
-my $ip_data = get_ipdata($data);	#Isolate out IP data
-my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
+$ip_data = get_ipdata($data);	#Isolate out IP data
+$tcp_data = get_tcpdata($data);	#Isolate out TCP data
 
 #Define "CSV" header in @results array, this array will also hold the results from brute forcing
 if ($tcp_data) {
-	@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
+	if (defined $options{g}) {
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options),Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
+	} else {
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
+	}
 } else {
-	@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address, Options\n";
+	if (defined $options{g}) {
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address, Options,Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
+	} else {
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address, Options\n";
+	}
 }
 
 geo() if defined $options{g};
@@ -644,13 +695,15 @@ while ($guess < $max_value) {					#While we still have values to guess
 			if (($tcp_data) && (checksumtcp($data_try . $data_try_tcp)) =~ /$original_sum_tcp/i) {		#If theres TCP data, check that the same is true for TCP as well
 				if ((defined $options{b}) && (bogon($data_try)) eq 'bogon') {
 				} else {
+					geoip($data_try . $data_try_tcp) if defined $options{g};
 					display_tcp($data_try . $data_try_tcp);			#If so, add it to our list of valid results
 				}
 											
 			} elsif (!$tcp_data) {																	#If no tcp data
 				if ((defined $options{b}) && (bogon($data_try)) eq 'bogon') {
 				} else {
-						display($data_try);																	#Still a match for IP, so print that
+					geoip($data_try) if defined $options{g};
+					display($data_try);																	#Still a match for IP, so print that
 				}		
 			}
 		$guess_tcp++;
@@ -669,6 +722,3 @@ if (defined $options{o}) {
 }
 
 perf() if (defined $options{t});
-
-#I might need this some day...
-#$hexstring = pack("C*", map { $_ ? hex($_) :() } $1);
