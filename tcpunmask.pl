@@ -6,13 +6,17 @@ use Getopt::Std;
 use Time::HiRes;
 use LWP::UserAgent;		#This is for bogons and geoIP data
 ##Whishlist
+	#UDP
+	#Sanities
 	#Make outputs more granular / more better (low priority)
-	#Add GeoIP datas	(medium priority)
 	#Add ability to take multiple packets and correlate common data out of them (low priority, but high awesomeness)
 	#Add --options to reduce invalid fields	(medium priority)
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
+
+#Changes
+	#Changed hex outputs to be single quoted, this fixes an unusal csv bug (66e7 is interpretted as 660000000, 66 x 10^7)
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
@@ -367,11 +371,11 @@ sub display {
 		$options = $12 if (($12) && ($headl ne 5));	#If there are options, print them raw (only if header length is greater than 20)
 	}
 	#Add Ipversion, header length, TOS, IP-ID, Fragment, Protocol Type, and Checksum to $result_line
-	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "$tos," . hex($tl) . "," . "$id," . "$frag," . hex($ttl) . "," . "$prot," . "$sum,";
+	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "'$tos'," . hex($tl) . "," . "'$id'," . "'$frag'," . hex($ttl) . "," . "'$prot'," . "'$sum',";
 	display_ip($saddr);							#Add Source address to result line
 	$result_line .= ",";						#Add the comma seperator
 	display_ip($daddr);							#Add Destination address to result line
-	$result_line .= ",$options" if $options;	#If there are options, add a comma and the options
+	$result_line .= ",'$options'" if $options;	#If there are options, add a comma and the options
 	$result_line .= ",,$geosource,$geodest" if ((defined $options{g}) && (!$tcp_data));
 	$result_line =~ s/\n|\s//g;
 	$result_line .= "\n";						#Regardless, newline it to prepare for next row of csv
@@ -417,8 +421,8 @@ sub display_tcp {
 
 	}
 
-	$result_line .= hex($sport) . "," . hex($dport) . "," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . $res . "," . $window . "," . $checksum . "," . $urg;
-	$result_line .= ",$dataz" if $dataz;
+	$result_line .= hex($sport) . "," . hex($dport) . "," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . "'$res'," . "'$window'," . "'$checksum," . "'$urg'";
+	$result_line .= ",'$dataz'" if $dataz;
 	$result_line .= ",,$geosource,$geodest" if defined $options{g};
 	$result_line =~ s/\n|\s//g;
 	$result_line .= "\n";
