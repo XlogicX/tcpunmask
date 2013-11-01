@@ -5,6 +5,7 @@ use strict;
 use Getopt::Std;
 use Time::HiRes;
 use LWP::UserAgent;		#This is for bogons and geoIP data
+use v5.10;
 ##Whishlist
 	#UDP
 	#Sanities
@@ -31,7 +32,7 @@ if (!$data) {
 	print "\nYou didn't enter a packet, here's help\n\n";
 	help();
 }
-my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
+my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
 my $bogons = bogonreq() if defined $options{b};				#Get bogons from Cymru
 my @geoblocks;												#holds start and end IP, and location offset for @geolocations
 my @geolocations;											#holds Country, Region, and City (among other things)
@@ -39,6 +40,7 @@ my $geosource = "NA,NA,NA\n";
 my $geodest = "NA,NA,NA\n";
 my $ip_data;
 my $tcp_data;
+my $prot;
 
 ###############SubRoutines################
 
@@ -355,7 +357,7 @@ sub display {
 	my $begin = Time::HiRes::time();	#Get start time of sub
 	my $data = shift;				#Get header info, this is specifically IP header data
 	$result_line = "";				#init the "CSV" result line for this packet
-	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$prot,$sum,$saddr, $daddr, $options);	#Declare containers
+	my ($ipver,$headl,$tos,$tl,$id,$frag,$ttl,$sum,$saddr, $daddr, $options);	#Declare containers
 	if ($data =~ /(.)(.)(..)(....)(....)(....)(..)(..)(....)(.{8})(.{8})(.*)/) {	#Parse all the fields
 		$ipver = $1;
 		$headl = $2;
@@ -370,6 +372,7 @@ sub display {
 		$daddr = $11;
 		$options = $12 if (($12) && ($headl ne 5));	#If there are options, print them raw (only if header length is greater than 20)
 	}
+	protocol();
 	#Add Ipversion, header length, TOS, IP-ID, Fragment, Protocol Type, and Checksum to $result_line
 	$result_line .= hex($ipver) . "," . $headl * 4 . "," . "'$tos'," . hex($tl) . "," . "'$id'," . "'$frag'," . hex($ttl) . "," . "'$prot'," . "'$sum',";
 	display_ip($saddr);							#Add Source address to result line
@@ -430,6 +433,160 @@ sub display_tcp {
 
 	my $end = Time::HiRes::time();				#Get finish time
 	$performance[15] += ($end-$begin);			#Add to total time for this sub
+}
+
+sub protocol {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	given($prot) {
+		when (0) { $prot = "HOPOPT (0)"; }
+		when (1) { $prot = "ICMP (1)"; }
+		when (2) { $prot = "IGMP (2)"; }
+		when (3) { $prot = "GGP (3)"; }
+		when (4) { $prot = "IPv4 (4)"; }
+		when (5) { $prot = "ST (5)"; }
+		when (6) { $prot = "TCP (6)"; }
+		when (7) { $prot = "CBT (7)"; }
+		when (8) { $prot = "EGP (8)"; }
+		when (9) { $prot = "IGP (9)"; }
+		when (10) { $prot = "BBN-RCC-MON  (10)"; }
+		when (11) { $prot = "NVP-II (11)"; }
+		when (12) { $prot = "PUP (12)"; }
+		when (13) { $prot = "ARGUS (13)"; }
+		when (14) { $prot = "EMCON (14)"; }
+		when (15) { $prot = "XNET (15)"; }
+		when (16) { $prot = "CHAOS (16)"; }
+		when (17) { $prot = "UDP (17)"; }
+		when (18) { $prot = "MUX (18)"; }
+		when (19) { $prot = "DCN-MEAS  (19)"; }
+		when (20) { $prot = "HMP (20)"; }
+		when (21) { $prot = "PRM (21)"; }
+		when (22) { $prot = "XNS-IDP  (22)"; }
+		when (23) { $prot = "TRUNK-1 (23)"; }
+		when (24) { $prot = "TRUNK-2 (24)"; }
+		when (25) { $prot = "LEAF-1 (25)"; }
+		when (26) { $prot = "LEAF-2  (26)"; }
+		when (27) { $prot = "RDP (27)"; }
+		when (28) { $prot = "IRTP (28)"; }
+		when (29) { $prot = "ISO-TP4 (29)"; }
+		when (30) { $prot = "NETBLT (30)"; }
+		when (31) { $prot = "MFE-NSP (31)"; }
+		when (32) { $prot = "MERIT-INP (32)"; }
+		when (33) { $prot = "DCCP (33)"; }
+		when (34) { $prot = "3PC (34)"; }
+		when (35) { $prot = "IDPR (35)"; }
+		when (36) { $prot = "XTP (36)"; }
+		when (37) { $prot = "DDP (37)"; }
+		when (38) { $prot = "IDPR-CMTP (38)"; }
+		when (39) { $prot = "TP++ (39)"; }
+		when (40) { $prot = "IL (40)"; }
+		when (41) { $prot = "IPv6 (41)"; }
+		when (42) { $prot = "SDRP (42)"; }
+		when (43) { $prot = "IPv6-Route (43)"; }
+		when (44) { $prot = "IPv6-Frag (44)"; }
+		when (45) { $prot = "IDRP (45)"; }
+		when (46) { $prot = "RSVP (46)"; }
+		when (47) { $prot = "GRE (47)"; }
+		when (48) { $prot = "MHRP (48)"; }
+		when (49) { $prot = "BNA (49)"; }
+		when (50) { $prot = "ESP3 (50)"; }
+		when (51) { $prot = "AH (51)"; }
+		when (52) { $prot = "I-NLSP (52)"; }
+		when (53) { $prot = "SWIPE (53)"; }
+		when (54) { $prot = "NARP (54)"; }
+		when (55) { $prot = "MOBILE (55)"; }
+		when (56) { $prot = "TLSP (56)"; }
+		when (57) { $prot = "SKIP (57)"; }
+		when (58) { $prot = "IPv6-ICMP (58)"; }
+		when (59) { $prot = "IPv6-NoNxt (59)"; }
+		when (60) { $prot = "IPv6-Opts (60)"; }
+		when (61) { $prot = "Any (61)"; }
+		when (62) { $prot = "CFTP (62)"; }
+		when (63) { $prot = "Any (63)"; }
+		when (64) { $prot = "SAT-EXPAK (64)"; }
+		when (65) { $prot = "KRYPTOLAN (65)"; }
+		when (66) { $prot = "RVD (66)"; }
+		when (67) { $prot = "IPPC (67)"; }
+		when (68) { $prot = "Any (68)"; }
+		when (69) { $prot = "SAT-MON (69)"; }
+		when (70) { $prot = "VISA (70)"; }
+		when (71) { $prot = "IPCV (71)"; }
+		when (72) { $prot = "CPNX (72)"; }
+		when (73) { $prot = "CPHB (73)"; }
+		when (74) { $prot = "WSN (74)"; }
+		when (75) { $prot = "PVP (75)"; }
+		when (76) { $prot = "BR-SAT-MON (76)"; }
+		when (77) { $prot = "SUN-ND (77)"; }
+		when (78) { $prot = "WB-MON (78)"; }
+		when (79) { $prot = "WB-EXPAK (79)"; }
+		when (80) { $prot = "ISO-IP (80)"; }
+		when (81) { $prot = "VMTP (81)"; }
+		when (82) { $prot = "SECURE-VMTP (82)"; }
+		when (83) { $prot = "VINES (83)"; }
+		when (84) { $prot = "TTP (84)"; }
+		when (84) { $prot = "IPTM (84)"; }
+		when (85) { $prot = "NSFNET-IGP (85)"; }
+		when (86) { $prot = "DGP (86)"; }
+		when (87) { $prot = "TCF (87)"; }
+		when (88) { $prot = "EIGRP (88)"; }
+		when (89) { $prot = "OSPF (89)"; }
+		when (90) { $prot = "Sprite-RPC (90)"; }
+		when (91) { $prot = "LARP (91)"; }
+		when (92) { $prot = "MTP (92)"; }
+		when (93) { $prot = "AX.25 (93)"; }
+		when (94) { $prot = "IPIP (94)"; }
+		when (95) { $prot = "MICP (95)"; }
+		when (96) { $prot = "SCC-SP (96)"; }
+		when (97) { $prot = "ETHERIP (97)"; }
+		when (98) { $prot = "ENCAP (98)"; }
+		when (99) { $prot = "Any (99)"; }
+		when (100) { $prot = "GMTP (100)"; }
+		when (101) { $prot = "IFMP (101)"; }
+		when (102) { $prot = "PNNI (102)"; }
+		when (103) { $prot = "PIM (103)"; }
+		when (104) { $prot = "ARIS (104)"; }
+		when (105) { $prot = "SCPS (105)"; }
+		when (106) { $prot = "QNX (106)"; }
+		when (107) { $prot = "A/N (107)"; }
+		when (108) { $prot = "IPComp (108)"; }
+		when (109) { $prot = "SNP (109)"; }
+		when (110) { $prot = "Compaq-Peer (110)"; }
+		when (111) { $prot = "IPX-in-IP (111)"; }
+		when (112) { $prot = "VRRP (112)"; }
+		when (113) { $prot = "PGM (113)"; }
+		when (114) { $prot = "Any (114)"; }
+		when (115) { $prot = "L2TP (115)"; }
+		when (116) { $prot = "DDX (116)"; }
+		when (117) { $prot = "IATP (117)"; }
+		when (118) { $prot = "STP (118)"; }
+		when (119) { $prot = "SRP (119)"; }
+		when (120) { $prot = "UTI (120)"; }
+		when (121) { $prot = "SMP (121)"; }
+		when (122) { $prot = "SM (122)"; }
+		when (123) { $prot = "PTP (123)"; }
+		when (124) { $prot = "IS-IS (124)"; }
+		when (125) { $prot = "FIRE (125)"; }
+		when (126) { $prot = "CRTP (126)"; }
+		when (127) { $prot = "CRUDP (127)"; }
+		when (128) { $prot = "SSCOPMCE (128)"; }
+		when (129) { $prot = "IPLT (129)"; }
+		when (131) { $prot = "PIPE (131)"; }
+		when (132) { $prot = "SCTP (132)"; }
+		when (133) { $prot = "FC (133)"; }
+		when (134) { $prot = "RSVP-E2E-IGNORE (134)"; }
+		when (135) { $prot = "Mobility (135)"; }
+		when (136) { $prot = "UDPLite (136)"; }
+		when (137) { $prot = "MPLS-in-IP (137)"; }
+		when (138) { $prot = "manet (138)"; }
+		when (139) { $prot = "HIP (139)"; }
+		when (140) { $prot = "Shim6 (140)"; }
+		when (141) { $prot = "WESP (141)"; }
+		when (142) { $prot = "ROHC (142)"; }
+		when (143) { $prot = "UNASSIGNED (143)"; }
+		when (255) { $prot = "Reserved (255)"; }
+	    default       {}
+	}
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[19] += ($end-$begin);			#Add to total time for this sub
 }
 
 #Sub for correlating results with geoip data
@@ -599,6 +756,7 @@ sub perf {
 	print "\tgeoip(): $performance[18]\n";
 	print "\tbogonreq(): $performance[16]\n";
 	print "\tbogon(): $performance[17]\n";
+	print "\tprotocols(): $performance[18]\n";
 	my $subtimes = 0;
 	foreach (@performance) {$subtimes += $_ if $_;}							
 	my $finish = Time::HiRes::time();
