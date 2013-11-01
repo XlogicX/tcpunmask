@@ -17,7 +17,7 @@ use v5.10;
 		#etc...
 
 #Changes
-	#Changed hex outputs to be single quoted, this fixes an unusal csv bug (66e7 is interpretted as 660000000, 66 x 10^7)
+	#added port breakdowns
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
@@ -40,7 +40,12 @@ my $geosource = "NA,NA,NA\n";
 my $geodest = "NA,NA,NA\n";
 my $ip_data;
 my $tcp_data;
-my $prot;
+my $prot;													#holds IP protocol number (and name with protocols() function)
+my @ports;													#holds port names
+my %tcp_ports;												#hash that holds portnumber=>name
+my %udp_ports;												#hash that holds portnumber=>name
+my $sport;
+my $dport;
 
 ###############SubRoutines################
 
@@ -409,7 +414,7 @@ sub display_tcp {
 	my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 	$results[-1] =~ s/\n$/,/;			#replace the newline in our IP row with a comma instead (since we now realize we are not done with the line)
 
-	my ($sport, $dport, $seq, $ack, $offset, $res, $flags, $window, $checksum, $urg, $dataz);	#Declare containers
+	my ($seq, $ack, $offset, $res, $flags, $window, $checksum, $urg, $dataz);	#Declare containers
 	if ($tcp_data =~ /(.{4})(.{4})(.{8})(.{8})(.)(.)(.{4})(.{4})(.{4})(.*)/) {	#Parse all the fields
 		$sport = $1;
 		$dport = $2;
@@ -423,8 +428,8 @@ sub display_tcp {
 		$dataz = $10 if ($10);	#If there's data, lets get that
 
 	}
-
-	$result_line .= hex($sport) . "," . hex($dport) . "," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . "'$res'," . "'$window'," . "'$checksum," . "'$urg'";
+	tcp_ports();
+	$result_line .= "$sport,$dport," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . "'$res'," . "'$window'," . "'$checksum," . "'$urg'";
 	$result_line .= ",'$dataz'" if $dataz;
 	$result_line .= ",,$geosource,$geodest" if defined $options{g};
 	$result_line =~ s/\n|\s//g;
@@ -435,6 +440,7 @@ sub display_tcp {
 	$performance[15] += ($end-$begin);			#Add to total time for this sub
 }
 
+#Subroutine for printing friendly protocol names (a large switch/case routine)
 sub protocol {
 	my $begin = Time::HiRes::time();	#Get start time of sub
 	given($prot) {
@@ -587,6 +593,40 @@ sub protocol {
 	}
 	my $end = Time::HiRes::time();				#Get finish time
 	$performance[19] += ($end-$begin);			#Add to total time for this sub
+}
+
+sub tcp_ports {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	$sport = hex($sport);
+	$dport = hex($dport);
+	$sport = $tcp_ports{$sport} . "($sport)";
+	$dport = $tcp_ports{$dport} . "($dport)";
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[20] += ($end-$begin);			#Add to total time for this sub
+}
+
+#builds up the tcp and udp hashes for port names from /etc/services
+sub build_ports {
+	my $begin = Time::HiRes::time();	#Get start time of sub
+	open PORTS, '/etc/services' or die "Couldn't open /etc/services, port names will only display by number $!\n";	#input filehandle is BLOCKS
+	@ports = <PORTS>;
+	my $name;
+	my $number;
+	my $type;
+
+	my $i = 0;
+	foreach (@ports) {
+		if ($_ =~ /(\w+)\s+(\d+)\/(\w+?)\s+/) {
+			$name = $1;
+			$number = $2;
+			$type = $3;
+			if ($type eq "tcp") {$tcp_ports{$number} = $name;}
+			if ($type eq "udp") {$udp_ports{$number} = $name;}
+		}	
+		$i++;
+	}
+	my $end = Time::HiRes::time();				#Get finish time
+	$performance[21] += ($end-$begin);			#Add to total time for this sub
 }
 
 #Sub for correlating results with geoip data
@@ -756,7 +796,9 @@ sub perf {
 	print "\tgeoip(): $performance[18]\n";
 	print "\tbogonreq(): $performance[16]\n";
 	print "\tbogon(): $performance[17]\n";
-	print "\tprotocols(): $performance[18]\n";
+	print "\tprotocols(): $performance[19]\n";
+	print "\ttcp_ports(): $performance[20]\n";
+	print "\tbuild_ports(): $performance[21]\n";
 	my $subtimes = 0;
 	foreach (@performance) {$subtimes += $_ if $_;}							
 	my $finish = Time::HiRes::time();
@@ -820,6 +862,7 @@ if ($tcp_data) {
 	}
 }
 
+build_ports();
 geo() if defined $options{g};
 
 my $original_sum = getsum($ip_data);		#Get the reported IP checksum in IP header
