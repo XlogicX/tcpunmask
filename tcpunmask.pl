@@ -443,7 +443,7 @@ sub display_tcp {
 #Subroutine for printing friendly protocol names (a large switch/case routine)
 sub protocol {
 	my $begin = Time::HiRes::time();	#Get start time of sub
-	given($prot) {
+	given(hex($prot)) {
 		when (0) { $prot = "HOPOPT (0)"; }
 		when (1) { $prot = "ICMP (1)"; }
 		when (2) { $prot = "IGMP (2)"; }
