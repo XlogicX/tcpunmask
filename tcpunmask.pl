@@ -18,6 +18,7 @@ use v5.10;
 	#TCP checksumming bad?
 
 #Changes
+	#added port breakdowns
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
@@ -98,14 +99,14 @@ sub checksum($){
 	#Determine what value overflowed into carry (past 2 bytes)
 	my $hexsum = sprintf("%.4X\n", $sum);	#Just get the Least Significant nibbles
 	my $carry;								#create container for value of carry
-	if ($hexsum =~ /(.).{4}/) {				#if there are 5 nibbles, parse the Most Significant nibble
+	if ($hexsum =~ /(.+).{4}$/) {			#if there are 5+ nibbles, parse the Most Significant nibble
 		$carry = $1;						#store it as the carry
 	} else {								#otherwise
 		$carry = 0;								#it's zero
 	}
 
 	#Now add the carry to the non-overflowed sum
-	$sum += $carry;						#add the carry to the non-overflowed sum		
+	$sum += hex($carry);						#add the carry to the non-overflowed sum		
 	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
 	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
 		$sum = $1;
@@ -205,14 +206,14 @@ sub checksumtcp($){
 	#Determine what value overflowed into carry (past 2 bytes)
 	my $hexsum = sprintf("%.4X\n", $sum);	#Just get the Least Significant nibbles
 	my $carry;								#create container for value of carry
-	if ($hexsum =~ /(.).{4}/) {				#if there are 5 nibbles, parse the Most Significant nibble
+	if ($hexsum =~ /(.+).{4}$/) {			#if there are 5+ nibbles, parse the Most Significant nibble
 		$carry = $1;						#store it as the carry
 	} else {								#otherwise
 		$carry = 0;							#it's zero
 	}
 
 	#Now add the carry to the non-overflowed sum
-	$sum += $carry;						#add the carry to the non-overflowed sum
+	$sum += hex($carry);						#add the carry to the non-overflowed sum
 	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
 	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
 		$sum = $1;
