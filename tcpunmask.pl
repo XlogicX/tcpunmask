@@ -9,12 +9,12 @@ use v5.10;
 ##Whishlist
 	#UDP
 	#Sanities
-	#Make outputs more granular / more better (low priority)
 	#Add ability to take multiple packets and correlate common data out of them (low priority, but high awesomeness)
 	#Add --options to reduce invalid fields	(medium priority)
 		#only ipv4
 		#ip header length below 20 is invalid
 		#etc...
+	#TCP checksumming bad?
 
 #Changes
 	#added port breakdowns
@@ -423,6 +423,8 @@ sub display_tcp {
 	$result_line = "";				#init the "CSV" result line for this packet
 	my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 	$results[-1] =~ s/\n$/,/;			#replace the newline in our IP row with a comma instead (since we now realize we are not done with the line)
+	my $options;
+	my $datax;
 
 	my ($seq, $ack, $offset, $window, $checksum, $urg, $dataz);	#Declare containers
 	if ($tcp_data =~ /(.{4})(.{4})(.{8})(.{8})(.).(..)(.{4})(.{4})(.{4})(.*)/) {	#Parse all the fields
@@ -430,18 +432,27 @@ sub display_tcp {
 		$dport = $2;
 		$seq = $3;
 		$ack = $4;
-		$offset = $5;
+		$offset = hex($5) * 4;
 		$flags = $6;
 		$window = $7;
 		$checksum = $8;
 		$urg = $9;
 		$dataz = $10 if ($10);	#If there's data, lets get that
+		if ($dataz) {
+			$options = $dataz;
+			my $optionsize = ($offset - 20) * 2;
+			if ($options =~ /^(.{$optionsize})(.*)$/) {
+				$options = $1;
+				$datax = $2 if ($2);
+			}
+		}
 
 	}
 	tcp_ports();
 	flags();
-	$result_line .= "$sport,$dport," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . ",$flags," . "'$window'," . "'$checksum," . "'$urg'";
-	$result_line .= ",'$dataz'" if $dataz;
+	$result_line .= "$sport,$dport," . hex($seq) . "," . hex($ack) . "," . $offset . ",$flags," . "'$window'," . "'$checksum," . "'$urg'";
+	$result_line .= ",'$options'" if $options;
+	$result_line .= ",'$datax'" if $datax;
 	$result_line .= ",,$geosource,$geodest" if defined $options{g};
 	$result_line =~ s/\n|\s//g;
 	$result_line .= "\n";
@@ -875,9 +886,9 @@ $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 #Define "CSV" header in @results array, this array will also hold the results from brute forcing
 if ($tcp_data) {
 	if (defined $options{g}) {
-		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset/Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options),Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Flags,Window,Checksum,Urgent Pointer,Options,Data,Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
 	} else {
-		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset/Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Flags,Window,Checksum,Urgent Pointer,Options,Data\n";
 	}
 } else {
 	if (defined $options{g}) {
