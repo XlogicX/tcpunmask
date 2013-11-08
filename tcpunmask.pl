@@ -32,7 +32,7 @@ if (!$data) {
 	print "\nYou didn't enter a packet, here's help\n\n";
 	help();
 }
-my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
+my @performance = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);	#Array to hold time values of how long each sub-routine takes (init to 0 for the routines not run)
 my $bogons = bogonreq() if defined $options{b};				#Get bogons from Cymru
 my @geoblocks;												#holds start and end IP, and location offset for @geolocations
 my @geolocations;											#holds Country, Region, and City (among other things)
@@ -46,6 +46,7 @@ my %tcp_ports;												#hash that holds portnumber=>name
 my %udp_ports;												#hash that holds portnumber=>name
 my $sport;
 my $dport;
+my $flags;
 
 ###############SubRoutines################
 
@@ -153,9 +154,13 @@ sub checksumtcp($){
 	if ($sum =~ /^.{4}(.{4}).+/) {					#Parse packet length (as reported by IP header)
 		$tlength = hex($1);							#Get the decimal value into $tlength
 	}
+
 	$tcplength = $tlength - ($offset/2);			#TCP header + data = total packet length
 	$tcplength = sprintf("%.4X\n", $tcplength);		#Get ASCII-hex representation of this
 	chomp($tcplength);								#chomp chomp chomp for safe measure
+
+	print "tcplength: $tcplength\n" if $debug;
+
 	my $tcp_data = $sum;							#Get full headers info into $tcp_data (it's both IP and TCP for now though...)
 	$tcp_data =~ s/^.{$offset}(.*)/$1/;				#Parse out the IP data leaving just TCP
 	my $tcp_without_sum = $tcp_data;				#Store TCP data in $tcp_without_sum var to process next
@@ -164,6 +169,9 @@ sub checksumtcp($){
 	#Get 2byte words for all header data (to sum)
 	my $i = 0;									#init the loop cntr
 	my @words;									#Container of array of 2-byte words to sum
+
+	print "tcp_without_sum: $tcp_without_sum\n" if $debug;
+
 	while ($tcp_without_sum) {					#while we still have 2-byte words
 		if ($tcp_without_sum =~ /^(.{4})/) {	#Get the first 2 bytes
 			$words[$i] = $1;					#store them in the words array			
@@ -205,6 +213,8 @@ sub checksumtcp($){
 	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
 		$sum = $1;
 	}
+
+	print "tcp_checksum before 1's compliment: $sum\n" if $debug;
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
@@ -414,14 +424,14 @@ sub display_tcp {
 	my $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 	$results[-1] =~ s/\n$/,/;			#replace the newline in our IP row with a comma instead (since we now realize we are not done with the line)
 
-	my ($seq, $ack, $offset, $res, $flags, $window, $checksum, $urg, $dataz);	#Declare containers
-	if ($tcp_data =~ /(.{4})(.{4})(.{8})(.{8})(.)(.)(.{4})(.{4})(.{4})(.*)/) {	#Parse all the fields
+	my ($seq, $ack, $offset, $window, $checksum, $urg, $dataz);	#Declare containers
+	if ($tcp_data =~ /(.{4})(.{4})(.{8})(.{8})(.).(..)(.{4})(.{4})(.{4})(.*)/) {	#Parse all the fields
 		$sport = $1;
 		$dport = $2;
 		$seq = $3;
 		$ack = $4;
 		$offset = $5;
-		$res = $6;
+		$flags = $6;
 		$window = $7;
 		$checksum = $8;
 		$urg = $9;
@@ -429,7 +439,8 @@ sub display_tcp {
 
 	}
 	tcp_ports();
-	$result_line .= "$sport,$dport," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . "," . "'$res'," . "'$window'," . "'$checksum," . "'$urg'";
+	flags();
+	$result_line .= "$sport,$dport," . hex($seq) . "," . hex($ack) . "," . hex($offset * 4) . ",$flags," . "'$window'," . "'$checksum," . "'$urg'";
 	$result_line .= ",'$dataz'" if $dataz;
 	$result_line .= ",,$geosource,$geodest" if defined $options{g};
 	$result_line =~ s/\n|\s//g;
@@ -599,8 +610,8 @@ sub tcp_ports {
 	my $begin = Time::HiRes::time();	#Get start time of sub
 	$sport = hex($sport);
 	$dport = hex($dport);
-	$sport = $tcp_ports{$sport} . "($sport)";
-	$dport = $tcp_ports{$dport} . "($dport)";
+	$sport = $tcp_ports{$sport} . "($sport)" if $tcp_ports{$sport};
+	$dport = $tcp_ports{$dport} . "($dport)" if $tcp_ports{$dport};
 	my $end = Time::HiRes::time();				#Get finish time
 	$performance[20] += ($end-$begin);			#Add to total time for this sub
 }
@@ -627,6 +638,20 @@ sub build_ports {
 	}
 	my $end = Time::HiRes::time();				#Get finish time
 	$performance[21] += ($end-$begin);			#Add to total time for this sub
+}
+
+sub flags {
+	my $flag_list = "(";
+	my $flagz = hex($flags);
+	if ($flagz & '1') {$flag_list .= "<FIN>"}
+	if ($flagz & '2') {$flag_list .= "<SYN>"}
+	if ($flagz & '4') {$flag_list .= "<RST>"}
+	if ($flagz & '8') {$flag_list .= "<PSH>"}
+	if ($flagz & '16') {$flag_list .= "<ACK>"}
+	if ($flagz & '32') {$flag_list .= "<URG>"}
+	if ($flagz & '64') {$flag_list .= "<ECN>"}
+	if ($flagz & '128') {$flag_list .= "<CWR>"}			
+	$flags = $flag_list .= ") $flags";
 }
 
 #Sub for correlating results with geoip data
@@ -850,9 +875,9 @@ $tcp_data = get_tcpdata($data);	#Isolate out TCP data
 #Define "CSV" header in @results array, this array will also hold the results from brute forcing
 if ($tcp_data) {
 	if (defined $options{g}) {
-		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options),Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset/Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options),Src Contry, Src Region, Src City, Dst Country, Dst Region, Dst City\n";
 	} else {
-		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset,Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
+		@results = "IP Version,Header Length,Type of Service,Total Length,Identification,Flags/Frag,TTL(hops),Protocol,Checksum,Source Address,Destination Address,Source Port,Destination Port,Sequence Number,Acknowledgement Number,Offset/Reserved,Flags,Window,Checksum,Urgent Pointer,Data(w/options)\n";
 	}
 } else {
 	if (defined $options{g}) {
