@@ -108,7 +108,7 @@ sub checksum($){
 	#Now add the carry to the non-overflowed sum
 	$sum += hex($carry);						#add the carry to the non-overflowed sum		
 	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
-	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
+	if ($sum =~ /.+(.{4})$/) {			#Regex to lop off the carry part
 		$sum = $1;
 	}
 
@@ -179,7 +179,8 @@ sub checksumtcp($){
 			$tcp_without_sum = "";
 		}
 		if ($tcp_without_sum =~ /^(.{4})/) {	#Get the first 2 bytes
-			$words[$i] = $1;					#store them in the words array			
+			$words[$i] = $1;					#store them in the words array	
+			print "adding $words[$i]\n";		
 		$tcp_without_sum =~ s/^.{4}//;			#remove those 2 bytes from $tcp_without_sum
 		}
 		$i++;									#On to the next 2 bytes
@@ -194,6 +195,8 @@ sub checksumtcp($){
 	}
 	@words = (@words, '0006', $saddr1, $saddr2, $daddr1, $daddr2, $tcplength);	#array of all 2-byte words to add
 
+	print "shit to sum: @words\n";
+
 	#Add the words
 	my $wordcount = @words;			#how many words
 	$i = 0;							#init the loop cntr
@@ -202,6 +205,8 @@ sub checksumtcp($){
 		$sum += hex($words[$i]);	#add current word to $sum
 		$i++;						#On to next word
 	}
+
+	print "subtotal: " . sprintf("%.4X", $sum) . "\n";
 
 	#Determine what value overflowed into carry (past 2 bytes)
 	my $hexsum = sprintf("%.4X\n", $sum);	#Just get the Least Significant nibbles
@@ -212,18 +217,20 @@ sub checksumtcp($){
 		$carry = 0;							#it's zero
 	}
 
+	print "overflow: $carry\n";
+
 	#Now add the carry to the non-overflowed sum
 	$sum += hex($carry);						#add the carry to the non-overflowed sum
 	$sum = sprintf("%.4X\n", $sum);		#Re-ASCII-hex it
-	if ($sum =~ /.(.{4})/) {			#Regex to lop off the carry part
+	if ($sum =~ /.+(.{4})$/) {			#Regex to lop off the carry part
 		$sum = $1;
 	}
 
-	print "tcp_checksum before 1's compliment: $sum\n" if $debug;
+	print "tcp_checksum before 1's compliment: $sum\n";
 
 	$sum =~ tr/0123456789ABCDEF/FEDCBA9876543210/;	#mathemetically equiv to FFFF-$sum or 1's compliment
 
-	print "tcp_checksum: $sum\n" if $debug;			#(debug): Reports the resulting checksum
+	print "tcp_checksum: $sum\n";			#(debug): Reports the resulting checksum
 
 	my $end = Time::HiRes::time();		#Get finish time
 	$performance[3] += ($end-$begin);	#Add to total time for this sub
