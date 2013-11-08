@@ -3,7 +3,8 @@ tcpunmask
 
 tcpunmask - Attempt to unmask sanitized data from a TCP/IP packet
 
-The last "stable" release was committed on Oct 13, 2013. There are still some significant bugs
+ToorCon15 Release was Oct 13, 2013, This version had signifigant TCP checksum issues
+Nov 7, 2013 version fixed all the TCP checksum issues I know about
 
 SYNOPSIS
 =========
