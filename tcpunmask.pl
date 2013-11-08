@@ -9,6 +9,7 @@ use v5.10;
 ##Whishlist
 	#UDP
 	#Sanities
+	#Make outputs more granular / more better (low priority)
 	#Add ability to take multiple packets and correlate common data out of them (low priority, but high awesomeness)
 	#Add --options to reduce invalid fields	(medium priority)
 		#only ipv4
@@ -17,7 +18,6 @@ use v5.10;
 	#TCP checksumming bad?
 
 #Changes
-	#added port breakdowns
 
 my $start = Time::HiRes::time();	#Stores when the script started
 my %options=();						#For cli options
@@ -173,6 +173,10 @@ sub checksumtcp($){
 	print "tcp_without_sum: $tcp_without_sum\n" if $debug;
 
 	while ($tcp_without_sum) {					#while we still have 2-byte words
+		if (length($tcp_without_sum) eq 2) {
+			$words[$i] = $tcp_without_sum . "00";
+			$tcp_without_sum = "";
+		}
 		if ($tcp_without_sum =~ /^(.{4})/) {	#Get the first 2 bytes
 			$words[$i] = $1;					#store them in the words array			
 		$tcp_without_sum =~ s/^.{4}//;			#remove those 2 bytes from $tcp_without_sum
